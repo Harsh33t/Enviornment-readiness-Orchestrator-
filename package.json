@@ -1,0 +1,27 @@
+{
+  "name": "environment-readiness-prototype",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Portfolio prototype demonstrating a preflight and environment-bootstrap workflow for cloud E2E testing with deterministic mock services.",
+  "scripts": {
+    "dev": "vite",
+    "start": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.2",
+    "vitest": "^2.0.5"
+  }
+}

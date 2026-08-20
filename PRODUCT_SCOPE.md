@@ -46,7 +46,7 @@ The prototype provides a self-contained demonstration of the orchestration layer
 
 ## 4. Non-Goals
 
-- **No Live Cloud / Production Execution:** Does not connect to live Zorro instances, Try Narrative systems, AWS/GCP, or private customer VPCs.
+- **No Live Cloud / Production Execution:** Does not connect to live production instances, AWS/GCP, or private customer VPCs.
 - **No LLM / AI Evaluation:** Decision-making and failure classification are 100% deterministic (based on HTTP status codes and assertion rules), avoiding non-deterministic AI halluncinations.
 - **No Arbitrary Shell / Process Spawning:** No un-sandboxed terminal commands or host system subprocesses.
 - **No Headless Browser Automation:** Focuses on preflight environment readiness orchestration, not re-implementing Playwright/Puppeteer browser runners.
@@ -62,9 +62,9 @@ The prototype provides a self-contained demonstration of the orchestration layer
 
 ---
 
-## 6. Open Questions for Try Narrative / Zorro Team
+## 6. Architecture & Design Considerations
 
-1. **Staging Access & VPC Gateways:** How do your customers currently handle pre-run authentication and private staging network tunneling for cloud E2E runners?
-2. **Seed Data Lifecycles:** Is seed-data creation typically handled by database seeding scripts, dedicated staging APIs, or in-test UI setup steps?
-3. **Failure Classification UX:** Would teams prefer environment preflight failures to abort runs immediately (saving CI minutes) or run anyway with a `SKIPPED_DUE_TO_ENVIRONMENT` state?
-4. **Teardown Guarantees:** What mechanisms are preferred to handle teardown if a cloud runner VM crashes or is forcefully terminated by a CI timeout?
+1. **Staging Access & VPC Gateways:** How teams handle pre-run authentication and private staging network tunneling for cloud E2E runners.
+2. **Seed Data Lifecycles:** Managing seed-data creation via database seeding scripts, dedicated staging APIs, or in-test UI setup steps.
+3. **Failure Classification UX:** Evaluating whether preflight failures should abort runs immediately (saving CI minutes) or report structured skip statuses.
+4. **Teardown Guarantees:** Implementing robust mechanisms to handle teardown if a runner VM crashes or is terminated by a CI timeout.

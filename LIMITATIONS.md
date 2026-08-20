@@ -7,7 +7,7 @@ This document defines the strict operational boundaries, security posture, and n
 ## 1. Prototype & Portfolio Scope
 
 - **Concept Demonstration Only:** This software is a standalone portfolio prototype demonstrating how an environment preflight check and bootstrap orchestration layer can distinguish environment/setup failures from true product regressions.
-- **No Affiliation or Production Integration:** This prototype is not affiliated with, endorsed by, or connected to Zorro or Try Narrative. It does not connect to any private internal APIs, customer staging environments, or production infrastructure.
+- **No Affiliation or Production Integration:** This prototype is not affiliated with, endorsed by, or connected to any external commercial vendor. It does not connect to any private internal APIs, customer staging environments, or production infrastructure.
 
 ---
 

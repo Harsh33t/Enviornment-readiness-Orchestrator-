@@ -25,7 +25,7 @@ This prototype implements an **Environment Readiness Layer** that runs preflight
 - **SSRF Protections:** Strict URL parsing and allowlisted local mock endpoints.
 - **Zero Real Credentials:** Synthetic mock tokens only; payloads sanitized without prefix leakage.
 - **No Arbitrary Execution:** Disallows shell execution and dynamic code evaluation.
-- **Simulated Test Layer:** Standalone prototype for evaluation; not integrated into production Zorro or Narrative infrastructure.
+- **Simulated Test Layer:** Standalone prototype for evaluation; not integrated into production cloud infrastructure.
 
 ---
 
@@ -71,7 +71,7 @@ npm ci
 # 2. Run typecheck & linter
 npm run lint
 
-# 3. Run automated tests (47 unit & integration tests)
+# 3. Run automated tests (48 unit & integration tests)
 npm test
 
 # 4. Start local interactive dashboard
@@ -83,21 +83,21 @@ npm start
 
 ## 📁 Project Architecture & Documentation
 
-- [`PRODUCT_SCOPE.md`](./PRODUCT_SCOPE.md): Target users, MVP boundaries, non-goals, and open questions.
+- [`PRODUCT_SCOPE.md`](./PRODUCT_SCOPE.md): Target users, MVP boundaries, non-goals, and architecture design.
 - [`LIMITATIONS.md`](./LIMITATIONS.md): Strict architectural boundaries and non-production disclaimer.
 - [`SECURITY_REVIEW.md`](./SECURITY_REVIEW.md): Threat matrix, SSRF protection, credential sanitization, and safety bounds.
 - [`MOCK_SERVICE.md`](./MOCK_SERVICE.md): Deterministic mock endpoints, fixtures, and scenario definitions.
 - [`DEMO_GUIDE.md`](./DEMO_GUIDE.md): 5-minute technical demonstration script.
-- [`FINAL_REVIEW.md`](./FINAL_REVIEW.md): Senior code review, test audit, and outreach questions.
+- [`FINAL_REVIEW.md`](./FINAL_REVIEW.md): Senior code review, test audit, and architecture overview.
 - [`PROJECT_SUMMARY.md`](./PROJECT_SUMMARY.md): Complete technical build and architecture document.
 
 ---
 
-## 🧪 Comparison: Public Zorro Primitives vs. Prototype Layer
+## 🧪 Testing Layer Architecture Comparison
 
-| Documented Zorro Public Concepts | This Readiness Prototype Layer |
+| Standard E2E Testing Concepts | This Readiness Prototype Layer |
 | :--- | :--- |
-| **Agent / Workflow Execution** | **Preflight Gatekeeper:** Verifies health, auth, and seed data *before* running test tasks. |
+| **Test Suite Execution** | **Preflight Gatekeeper:** Verifies health, auth, and seed data *before* running test tasks. |
 | **Environment Provisioning** | **Run-Scoped Resource Ledger:** Idempotent tracking and cleanup of all provisioned mock test entities. |
 | **Failure Triage** | **Precedence Classifier:** Distinguishes `ENVIRONMENT_FAILED` / `BLOCKED` from true `TEST_FAILED` (product regression). |
 | **Operator Observability** | **Remediation Dashboard:** Real-time preflight matrix, state transition timeline, and approval flow. |

@@ -53,8 +53,8 @@ describe('EnvironmentProfileStore & Validation', () => {
 
   it('rejects unknown / non-allowlisted base URLs and hostile near-matches', () => {
     const disallowedUrls = [
-      'https://zorro.com/api/v1',
-      'https://api.narrative.ai',
+      'https://external-api.example.com/v1',
+      'https://cloud-provider.example.net/api',
       'http://localhost:3000/mock-env-hostile',
       'http://localhost:3000/mock-env/../admin',
       'http://admin:secret@localhost:3000/mock-env',

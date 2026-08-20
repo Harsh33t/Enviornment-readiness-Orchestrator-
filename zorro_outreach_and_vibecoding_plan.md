@@ -59,7 +59,7 @@ If he asks for the link, make sure the repository contains a clear README, a sho
 
 Use these prompts one at a time. Do not paste the entire chain into the IDE at once. After every prompt, run the tests, inspect the diff, and correct errors before continuing. Replace framework-specific wording only after the IDE has inspected the repository. If you have not started a repository, begin with Prompt 0.
 
-## Prompt 0 — Create the project safely
+## Prompt 0 — Create the project safely - DONEEE
 
 > Create a new portfolio prototype called `environment-readiness-prototype`. Before writing code, choose a simple, maintainable stack that you can run locally without paid services. Prefer the project’s default web stack if one already exists. The prototype must use mock services and must not connect to Zorro, Try Narrative, production systems, private customer systems, or real credentials.
 >

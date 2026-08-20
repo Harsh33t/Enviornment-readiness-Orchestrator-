@@ -29,7 +29,7 @@ export class ResourceLedger {
   }
 
   /**
-   * Registers a created resource in the ledger for guaranteed tracking.
+   * Registers a created resource in the ledger for run-scoped lifecycle tracking.
    */
   public registerResource(resource: ResourceRecord, teardownAction?: TeardownAction): void {
     this.ledger.set(resource.id, {

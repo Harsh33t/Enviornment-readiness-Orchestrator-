@@ -17,6 +17,22 @@ export interface ActionResult {
 }
 
 /**
+ * Executes a promise with an explicit timeout rejection.
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operationName: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`Operation '${operationName}' timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timer);
+  });
+}
+
+/**
  * Safe Bootstrap Executor.
  * Strictly executes only two approved action types: MOCK_API_REQUEST and LOCAL_MODULE.
  * Explicitly disallows shell execution, subprocesses, or arbitrary evaluation.
@@ -68,7 +84,11 @@ export class BootstrapExecutor {
     while (retries <= action.maxRetries) {
       try {
         if (action.type === ActionType.MOCK_API_REQUEST) {
-          const res = await this.mockServer.createSeedRecord(action.targetResourceName);
+          const res = await withTimeout(
+            this.mockServer.createSeedRecord(action.targetResourceName),
+            action.timeoutMs,
+            action.name
+          );
           const duration = Date.now() - start;
 
           if (res.status === 201 && res.data.record) {

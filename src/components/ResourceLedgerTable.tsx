@@ -28,7 +28,7 @@ export const ResourceLedgerTable: React.FC<ResourceLedgerProps> = ({ entries, is
             <span>📦</span> Run-Scoped Resource Ledger
           </h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-            Guaranteed lifecycle tracking and automatic teardown verification
+            Run-scoped lifecycle tracking and automatic teardown verification for mock resources
           </p>
         </div>
         <span className="badge badge-info">

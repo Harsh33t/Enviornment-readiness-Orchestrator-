@@ -29,6 +29,18 @@ This prototype implements an **Environment Readiness Layer** that runs preflight
 
 ---
 
+## ⚠️ What This Prototype Does NOT Implement
+
+To maintain complete safety and zero external dependencies as an educational/portfolio prototype, this project deliberately does **not** implement:
+- **No Live External Network Egress:** Zero outbound HTTP/TCP requests to real third-party APIs or cloud hosts.
+- **No Production E2E Runner Integration:** Does not execute real Playwright, Cypress, or Selenium browser instances (simulates test pass/fail results).
+- **No Persistent Database Storage:** In-memory ledger and state machine scoped to the active session.
+- **No Distributed Locking / Multi-Worker Coordination:** Single-runner in-memory execution without distributed Redis/ZooKeeper lease locks.
+- **No Private VPC Tunnels or WireGuard Gateways:** All staging endpoints are local mock routes.
+- **No Real Secrets Management:** Zero live Vault / KMS integration; uses synthetic mock strings only.
+
+---
+
 ## ⚙️ Lifecycle State Machine
 
 ```mermaid

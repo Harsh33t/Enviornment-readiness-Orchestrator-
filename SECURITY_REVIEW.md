@@ -13,7 +13,7 @@ This document provides a technical security evaluation, risk assessment, and def
 | **Secret & Credential Leakage** | Plaintext API keys and tokens exposed in logs, reports, or error payloads. | `sanitizeEvidence()` automatically strips and masks tokens, passwords, and authorization headers (`[MASKED_SECRET_***]`). Plaintext passwords in profiles are rejected at creation time. | **ENFORCED** |
 | **Denial of Service / Unbounded Hangs** | Run scripts hanging indefinitely on unresponsive staging endpoints. | Strict timeout bounds (`MIN_TIMEOUT_LIMIT_MS: 100ms`, `MAX_TIMEOUT_LIMIT_MS: 60000ms`) and retry bounds (`MAX_RETRY_LIMIT: 5`). | **ENFORCED** |
 | **Duplicate / Replay Setup Actions** | Replay of state-mutating actions causing race conditions or corrupted seed data. | `BootstrapExecutor` tracks executed action IDs within the session and rejects duplicate execution attempts. | **ENFORCED** |
-| **Resource Leaks on Failure** | Partially provisioned test accounts left active when tests crash. | `ResourceLedger` records all created entities; teardown is guaranteed across pass, fail, partial-bootstrap, and blocked flows. | **ENFORCED** |
+| **Resource Leaks on Failure** | Partially provisioned test accounts left active when tests crash. | `ResourceLedger` records all created entities; teardown executes across pass, fail, partial-bootstrap, and blocked flows in-memory. | **ENFORCED** |
 
 ---
 

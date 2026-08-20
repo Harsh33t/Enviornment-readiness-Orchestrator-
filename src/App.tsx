@@ -82,25 +82,16 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isRunning, isBootstrapping, handleRunOrchestration]);
 
+  // Generate remediation from effective report (post-bootstrap if completed, else initial)
   const remediationGuidance = useMemo(() => {
     if (!orchestrationResult) return [];
-    return generateRemediationGuidance(orchestrationResult.preflightReport.results);
+    return generateRemediationGuidance(orchestrationResult.effectivePreflightReport.results);
   }, [orchestrationResult]);
 
   const currentState = orchestrationResult?.run.currentState || (isRunning ? RunState.PREFLIGHT_RUNNING : RunState.PENDING);
   const events = orchestrationResult?.run.events || [];
-  const checkResults =
-    orchestrationResult?.postBootstrapReport?.results ||
-    orchestrationResult?.preflightReport?.results ||
-    [];
-  const ledgerEntries = orchestrationResult?.teardownSummary
-    ? [
-        ...orchestrationResult.run.createdResources.map((r) => ({
-          resource: r,
-          cleanedAt: r.teardownStatus === 'CLEANED' ? new Date().toISOString() : undefined,
-        })),
-      ]
-    : [];
+  const checkResults = orchestrationResult?.effectivePreflightReport?.results || [];
+  const ledgerEntries = orchestrationResult?.finalLedgerEntries || [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -194,15 +185,36 @@ export const App: React.FC = () => {
               <span>●</span> 2. Preflight Checks
             </div>
             <div style={{ color: 'var(--text-muted)' }}>→</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: currentState === RunState.BOOTSTRAPPING ? 'var(--status-warn)' : 'var(--text-muted)' }}>
-              <span>⚡</span> 3. Bootstrap Setup
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              color: currentState === RunState.AWAITING_APPROVAL || currentState === RunState.BOOTSTRAPPING
+                ? 'var(--status-warn)'
+                : 'var(--text-muted)'
+            }}>
+              <span>⚡</span> 3. Bootstrap Setup {currentState === RunState.AWAITING_APPROVAL && '(Approval Pending)'}
             </div>
             <div style={{ color: 'var(--text-muted)' }}>→</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: currentState === RunState.TEST_RUNNING || currentState === RunState.COMPLETED ? 'var(--accent-indigo)' : 'var(--text-muted)' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              color: currentState === RunState.TEST_RUNNING || currentState === RunState.COMPLETED
+                ? 'var(--accent-indigo)'
+                : 'var(--text-muted)'
+            }}>
               <span>🧪</span> 4. Product Test
             </div>
             <div style={{ color: 'var(--text-muted)' }}>→</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: currentState === RunState.CLEANING_UP || currentState === RunState.COMPLETED ? 'var(--status-pass)' : 'var(--text-muted)' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              color: currentState === RunState.CLEANING_UP || currentState === RunState.COMPLETED
+                ? 'var(--status-pass)'
+                : 'var(--text-muted)'
+            }}>
               <span>🧹</span> 5. Teardown
             </div>
           </div>
@@ -245,6 +257,7 @@ export const App: React.FC = () => {
         {/* Remediation Panel & Bootstrap Action */}
         <RemediationPanel
           guidanceList={remediationGuidance}
+          currentState={currentState}
           onApproveBootstrap={handleApproveBootstrap}
           isBootstrapping={isBootstrapping}
         />

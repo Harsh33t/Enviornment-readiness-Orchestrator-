@@ -1,94 +1,103 @@
-# Environment Readiness Prototype
+# Environment Readiness Orchestrator (Portfolio Prototype)
 
-> **Portfolio Concept Prototype:** A preflight and environment-bootstrap orchestration workflow for cloud E2E testing. It distinguishes environment/setup failures from true product regressions using deterministic mock services.
-> 
-> *Disclaimer: This is a standalone prototype built with local mock services for portfolio demonstration. It is not connected to, affiliated with, or endorsed by Zorro or Try Narrative.*
+A deterministic, mock-only preflight and environment-readiness orchestration prototype for Cloud E2E test pipelines.
 
----
-
-## 🎯 Concept & Problem Statement
-
-In continuous integration (CI) and cloud-based End-to-End (E2E) testing workflows, test suites frequently fail not due to application code regressions, but because the target test environment is unprepared:
-- Expired service-account authentication tokens (HTTP 401)
-- Degraded target staging APIs (HTTP 503)
-- Missing prerequisite seed data (HTTP 404)
-- Misconfigured feature flag toggles
-
-This prototype models a **Preflight & Bootstrap Orchestration Layer** that evaluates environment readiness prior to test execution, runs approved setup actions, tracks all created resources in a ledger, guarantees teardown, and accurately classifies run outcomes.
+[![CI Status](https://github.com/Harsh33t/Enviornment-readiness-Orchestrator-/actions/workflows/ci.yml/badge.svg)](https://github.com/Harsh33t/Enviornment-readiness-Orchestrator-/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
-## 🔍 Comparison: Documented Primitives vs. Orchestration Layer
+## 🎯 The Problem
 
-The public Zorro platform exposes robust building blocks for test execution. This prototype demonstrates an orchestration layer that connects these primitives:
+In modern end-to-end testing, tests often fail not due to genuine product bugs, but because the test environment was unready:
+- Authentication tokens expired (401)
+- Downstream microservices degraded or offline (503)
+- Required seed database entities missing (404)
+- Ephemeral test entities leaked across test executions
 
-| Documented Primitives | What the Primitive Does | Orchestration Layer Added by This Prototype |
-| :--- | :--- | :--- |
-| **Run-Code Steps** | Executes custom scripting logic within a test step. | Wraps setup/check calls in safe, bounded handlers with retry/timeout safety bounds. |
-| **Variables & Environments** | Stores configuration parameters, base URLs, and environment tokens. | Validates allowlisted URLs, enforces timeout boundaries, and prevents plaintext credential storage. |
-| **Reusable Modules** | Encapsulates reusable sequences of test steps across suites. | Orchestrates preflight readiness checks as standard pre-run verification suites. |
-| **Teardown Modules** | Executes cleanup actions at test conclusion. | Manages a run-scoped **Resource Ledger** that tracks every created entity and guarantees rollback. |
-| **Scheduled / CI Triggers** | Launches test suites on schedules or Git webhooks. | Evaluates preflight health *before* triggering full suites, aborting early if the target environment is blocked. |
-| **Failure Reporting** | Flags test failure when assertions fail. | **Classifies Root Cause**: Distinguishes `ENVIRONMENT_FAILED` from genuine `PRODUCT_REGRESSION`. |
+This prototype implements an **Environment Readiness Layer** that runs preflight checks, requests operator approval for bootstrap setup, executes isolated mock tests, and enforces idempotent resource cleanup.
 
 ---
 
-## 🚀 Quickstart & Commands
+## 🔒 Safety & Prototype Isolation Boundary
 
-### Prerequisites
-- Node.js (v20+ or v24+)
-- npm (v10+)
-
-### 1. Installation
-```bash
-npm install
-```
-
-### 2. Run Automated Test Suite (47+ Tests)
-```bash
-npm test
-```
-To run tests in watch mode:
-```bash
-npm run test:watch
-```
-
-### 3. Start Interactive Operator Dashboard
-```bash
-npm run dev
-```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+- **In-Memory Mock Engines:** 100% deterministic local handlers; no live external network requests.
+- **SSRF Protections:** Strict URL parsing and allowlisted local mock endpoints.
+- **Zero Real Credentials:** Synthetic mock tokens only; payloads sanitized without prefix leakage.
+- **No Arbitrary Execution:** Disallows shell execution and dynamic code evaluation.
+- **Simulated Test Layer:** Standalone prototype for evaluation; not integrated into production Zorro or Narrative infrastructure.
 
 ---
 
-## 🔄 State Machine Lifecycle
+## ⚙️ Lifecycle State Machine
 
 ```mermaid
 stateDiagram-v2
     [*] --> PENDING
     PENDING --> PREFLIGHT_RUNNING
-    PREFLIGHT_RUNNING --> READY: All Checks Pass
-    PREFLIGHT_RUNNING --> BLOCKED: Auth Expired (401) / Outage (503)
-    PREFLIGHT_RUNNING --> BOOTSTRAPPING: Missing Seed Record (404)
-    BOOTSTRAPPING --> READY: Bootstrap Succeeded
+    PREFLIGHT_RUNNING --> READY: All Checks PASS
+    PREFLIGHT_RUNNING --> AWAITING_APPROVAL: Missing Prerequisites (WARN)
+    PREFLIGHT_RUNNING --> BLOCKED: Critical Failures (401 / 503)
+    AWAITING_APPROVAL --> BOOTSTRAPPING: Operator Approved
+    AWAITING_APPROVAL --> CLEANING_UP: Operator Aborted
+    BOOTSTRAPPING --> READY: Bootstrap Verified PASS
     BOOTSTRAPPING --> ENVIRONMENT_FAILED: Setup Action Failed
-    READY --> TEST_RUNNING: Launch Test Suite
-    TEST_RUNNING --> COMPLETED: Suite Succeeded
-    TEST_RUNNING --> TEST_FAILED: Product Regression Bug
+    READY --> TEST_RUNNING: Launch Simulated Suite
+    TEST_RUNNING --> COMPLETED: Tests Passed
+    TEST_RUNNING --> TEST_FAILED: Product Regression Detected
     TEST_FAILED --> CLEANING_UP
-    COMPLETED --> CLEANING_UP
     ENVIRONMENT_FAILED --> CLEANING_UP
     BLOCKED --> CLEANING_UP
-    CLEANING_UP --> COMPLETED: All Resources Cleaned
-    CLEANING_UP --> CLEANUP_FAILED: Teardown Deletion Error
+    CLEANING_UP --> COMPLETED: Teardown Succeeded
+    CLEANING_UP --> CLEANUP_FAILED: Teardown Failed
+    COMPLETED --> [*]
+    CLEANUP_FAILED --> [*]
 ```
 
 ---
 
-## 📚 Project Documentation
+## 🚀 Getting Started
 
-- [PRODUCT_SCOPE.md](file:///d:/Zorro%20testing%20default/PRODUCT_SCOPE.md): Target users, MVP boundaries, non-goals, and open questions.
-- [LIMITATIONS.md](file:///d:/Zorro%20testing%20default/LIMITATIONS.md): Strict architectural boundaries and non-production disclaimer.
-- [SECURITY_REVIEW.md](file:///d:/Zorro%20testing%20default/SECURITY_REVIEW.md): Threat matrix, SSRF protection, credential sanitization, and safety bounds.
-- [MOCK_SERVICE.md](file:///d:/Zorro%20testing%20default/MOCK_SERVICE.md): Deterministic mock endpoints, fixtures, and scenario definitions.
-- [DEMO_GUIDE.md](file:///d:/Zorro%20testing%20default/DEMO_GUIDE.md): 5-minute technical demonstration script.
+### Prerequisites
+- Node.js >= 20.0.0
+- npm >= 10.0.0
+
+### Installation & Run
+
+```bash
+# 1. Install dependencies
+npm ci
+
+# 2. Run typecheck & linter
+npm run lint
+
+# 3. Run automated tests (47 unit & integration tests)
+npm test
+
+# 4. Start local interactive dashboard
+npm start
+# -> Open http://localhost:3000
+```
+
+---
+
+## 📁 Project Architecture & Documentation
+
+- [`PRODUCT_SCOPE.md`](./PRODUCT_SCOPE.md): Target users, MVP boundaries, non-goals, and open questions.
+- [`LIMITATIONS.md`](./LIMITATIONS.md): Strict architectural boundaries and non-production disclaimer.
+- [`SECURITY_REVIEW.md`](./SECURITY_REVIEW.md): Threat matrix, SSRF protection, credential sanitization, and safety bounds.
+- [`MOCK_SERVICE.md`](./MOCK_SERVICE.md): Deterministic mock endpoints, fixtures, and scenario definitions.
+- [`DEMO_GUIDE.md`](./DEMO_GUIDE.md): 5-minute technical demonstration script.
+- [`FINAL_REVIEW.md`](./FINAL_REVIEW.md): Senior code review, test audit, and outreach questions.
+- [`PROJECT_SUMMARY.md`](./PROJECT_SUMMARY.md): Complete technical build and architecture document.
+
+---
+
+## 🧪 Comparison: Public Zorro Primitives vs. Prototype Layer
+
+| Documented Zorro Public Concepts | This Readiness Prototype Layer |
+| :--- | :--- |
+| **Agent / Workflow Execution** | **Preflight Gatekeeper:** Verifies health, auth, and seed data *before* running test tasks. |
+| **Environment Provisioning** | **Run-Scoped Resource Ledger:** Idempotent tracking and cleanup of all provisioned mock test entities. |
+| **Failure Triage** | **Precedence Classifier:** Distinguishes `ENVIRONMENT_FAILED` / `BLOCKED` from true `TEST_FAILED` (product regression). |
+| **Operator Observability** | **Remediation Dashboard:** Real-time preflight matrix, state transition timeline, and approval flow. |

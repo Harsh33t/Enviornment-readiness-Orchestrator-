@@ -51,18 +51,27 @@ describe('EnvironmentProfileStore & Validation', () => {
     expect(store.get('profile_valid_01')).toBeUndefined();
   });
 
-  it('rejects unknown / non-allowlisted base URLs', () => {
-    const invalidUrlProfile: EnvironmentProfile = {
-      ...validProfile,
-      id: 'profile_bad_url',
-      mockBaseUrl: 'https://zorro.com/api/v1', // Disallowed external URL
-    };
+  it('rejects unknown / non-allowlisted base URLs and hostile near-matches', () => {
+    const disallowedUrls = [
+      'https://zorro.com/api/v1',
+      'https://api.narrative.ai',
+      'http://localhost:3000/mock-env-hostile',
+      'http://localhost:3000/mock-env/../admin',
+      'http://admin:secret@localhost:3000/mock-env',
+      'mock://unsupported-external-env',
+    ];
 
-    const errors = validateEnvironmentProfile(invalidUrlProfile);
-    expect(errors.some((e) => e.field === 'mockBaseUrl')).toBe(true);
-    expect(errors[0].message).toContain('Disallowed Base URL');
+    for (const url of disallowedUrls) {
+      const invalidUrlProfile: EnvironmentProfile = {
+        ...validProfile,
+        id: `profile_${Math.random()}`,
+        mockBaseUrl: url,
+      };
 
-    expect(() => store.create(invalidUrlProfile)).toThrowError(/Disallowed Base URL/);
+      const errors = validateEnvironmentProfile(invalidUrlProfile);
+      expect(errors.some((e) => e.field === 'mockBaseUrl')).toBe(true);
+      expect(() => store.create(invalidUrlProfile)).toThrowError(/Disallowed|Malformed|Embedded credentials/);
+    }
   });
 
   it('rejects missing required fields (id, name, mockBaseUrl)', () => {
@@ -121,26 +130,46 @@ describe('EnvironmentProfileStore & Validation', () => {
     expect(errors[0].message).toContain('Unapproved action type');
   });
 
-  it('rejects plaintext credentials in action payloads', () => {
-    const credentialLeakProfile: EnvironmentProfile = {
-      ...validProfile,
-      id: 'profile_leak',
-      approvedSetupActions: [
-        {
-          id: 'act_leaky',
-          name: 'Leaky Action',
-          type: ActionType.MOCK_API_REQUEST,
-          endpoint: '/login',
-          payload: { user: 'admin', password: 'plainTextPassword123' },
-          targetResourceName: 'auth_res',
-          timeoutMs: 2000,
-          maxRetries: 1,
-        },
-      ],
-    };
+  it('rejects plaintext credentials in shallow and nested action payloads', () => {
+    const credentialLeakProfiles: EnvironmentProfile[] = [
+      {
+        ...validProfile,
+        id: 'profile_leak_shallow',
+        approvedSetupActions: [
+          {
+            id: 'act_leaky',
+            name: 'Leaky Action',
+            type: ActionType.MOCK_API_REQUEST,
+            endpoint: '/login',
+            payload: { user: 'admin', password: 'plainTextPassword123' },
+            targetResourceName: 'auth_res',
+            timeoutMs: 2000,
+            maxRetries: 1,
+          },
+        ],
+      },
+      {
+        ...validProfile,
+        id: 'profile_leak_nested',
+        approvedSetupActions: [
+          {
+            id: 'act_nested_leaky',
+            name: 'Nested Leaky Action',
+            type: ActionType.MOCK_API_REQUEST,
+            endpoint: '/auth',
+            payload: { auth: { credentials: { secret_key: 'sk_live_123456789' } } },
+            targetResourceName: 'auth_res',
+            timeoutMs: 2000,
+            maxRetries: 1,
+          },
+        ],
+      },
+    ];
 
-    const errors = validateEnvironmentProfile(credentialLeakProfile);
-    expect(errors.some((e) => e.field === 'approvedSetupActions[0].payload')).toBe(true);
-    expect(errors[0].message).toContain('Plaintext credentials or live secrets detected');
+    for (const p of credentialLeakProfiles) {
+      const errors = validateEnvironmentProfile(p);
+      expect(errors.some((e) => e.field === 'approvedSetupActions[0].payload')).toBe(true);
+      expect(errors[0].message).toContain('Plaintext credentials or live secrets detected');
+    }
   });
 });

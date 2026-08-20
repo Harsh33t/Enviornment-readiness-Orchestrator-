@@ -7,18 +7,18 @@ interface CheckMatrixProps {
 }
 
 export const CheckMatrix: React.FC<CheckMatrixProps> = ({ results, isLoading }) => {
-  const getBadgeClass = (status: CheckStatus) => {
+  const getBadge = (status: CheckStatus) => {
     switch (status) {
       case CheckStatus.PASS:
-        return 'badge-pass';
+        return <span className="badge badge-pass">✓ PASS</span>;
       case CheckStatus.WARN:
-        return 'badge-warn';
+        return <span className="badge badge-warn">⚠️ WARN</span>;
       case CheckStatus.BLOCK:
-        return 'badge-block';
+        return <span className="badge badge-block">🛑 BLOCK</span>;
       case CheckStatus.ERROR:
-        return 'badge-block';
+        return <span className="badge badge-block">✕ ERROR</span>;
       default:
-        return 'badge-info';
+        return <span className="badge badge-info">{status}</span>;
     }
   };
 
@@ -33,14 +33,21 @@ export const CheckMatrix: React.FC<CheckMatrixProps> = ({ results, isLoading }) 
             Deterministic environment evaluations prior to test suite execution
           </p>
         </div>
-        <span className="badge badge-info">
-          {isLoading ? 'RUNNING CHECKS...' : `${results.length} CHECKS EVALUATED`}
+        <span className={`badge ${isLoading ? 'badge-evaluating' : 'badge-info'}`}>
+          {isLoading ? (
+            <>
+              <span className="spinner" style={{ width: '10px', height: '10px' }} />
+              EVALUATING CHECKS...
+            </>
+          ) : (
+            `${results.length} CHECKS EVALUATED`
+          )}
         </span>
       </div>
 
       {results.length === 0 ? (
         <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-          No preflight checks executed yet. Click &quot;Run Preflight Orchestration&quot; to begin.
+          No preflight checks executed yet. Click &quot;Run Preflight & Orchestrator&quot; to begin.
         </div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
@@ -55,12 +62,13 @@ export const CheckMatrix: React.FC<CheckMatrixProps> = ({ results, isLoading }) 
               </tr>
             </thead>
             <tbody>
-              {results.map((chk) => (
+              {results.map((chk, idx) => (
                 <tr
                   key={chk.checkId}
                   style={{
                     borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
-                    transition: 'background var(--transition-fast)',
+                    animation: `checkRowIn var(--dur-normal) var(--ease-out-quart) forwards`,
+                    animationDelay: `${idx * 50}ms`,
                   }}
                 >
                   <td style={{ padding: '12px', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--accent-cyan)' }}>
@@ -68,7 +76,7 @@ export const CheckMatrix: React.FC<CheckMatrixProps> = ({ results, isLoading }) 
                   </td>
                   <td style={{ padding: '12px', fontWeight: 500 }}>{chk.name}</td>
                   <td style={{ padding: '12px' }}>
-                    <span className={`badge ${getBadgeClass(chk.status)}`}>{chk.status}</span>
+                    {getBadge(chk.status)}
                   </td>
                   <td style={{ padding: '12px', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
                     {chk.evidence.statusCode ? (

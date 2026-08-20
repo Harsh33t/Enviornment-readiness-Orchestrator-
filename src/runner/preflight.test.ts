@@ -58,22 +58,34 @@ describe('Preflight Runner', () => {
     expect(healthCheck?.remediation).toContain('Target service is down or degraded');
   });
 
-  it('sanitizes secrets, tokens, and authorization data from evidence payloads', () => {
+  it('sanitizes secrets, tokens, and authorization data recursively without prefix leakage', () => {
     const rawPayload = {
       user: 'test-admin',
       authToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.super_secret_payload',
       api_key: 'sk_live_123456789abcdef',
       password: 'my-super-secret-password',
       normalField: 'ok-data',
+      nested: {
+        bearer_token: 'bearer_xyz_987654',
+        innerUser: 'valid-name',
+      },
+      list: [{ secretField: 'secret-in-list' }, { normalItem: 'safe' }],
     };
 
     const sanitized = sanitizeEvidence(rawPayload);
 
     expect(sanitized.normalField).toBe('ok-data');
     expect(sanitized.user).toBe('test-admin');
-    expect(sanitized.authToken).not.toContain('super_secret_payload');
-    expect(sanitized.authToken).toContain('[MASKED_SECRET_');
-    expect(sanitized.api_key).toContain('[MASKED_SECRET_');
-    expect(sanitized.password).toContain('[MASKED_SECRET_');
+    expect(sanitized.authToken).toBe('[REDACTED_SECRET]');
+    expect(sanitized.api_key).toBe('[REDACTED_SECRET]');
+    expect(sanitized.password).toBe('[REDACTED_SECRET]');
+
+    const nested = sanitized.nested as Record<string, unknown>;
+    expect(nested.innerUser).toBe('valid-name');
+    expect(nested.bearer_token).toBe('[REDACTED_SECRET]');
+
+    const list = sanitized.list as Array<Record<string, unknown>>;
+    expect(list[0].secretField).toBe('[REDACTED_SECRET]');
+    expect(list[1].normalItem).toBe('safe');
   });
 });

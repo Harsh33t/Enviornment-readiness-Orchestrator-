@@ -40,9 +40,12 @@ describe('Domain Model & State Machine', () => {
       expect(sm.getRun().finishedAt).toBeDefined();
     });
 
-    it('executes bootstrap recovery path: PREFLIGHT_RUNNING -> BOOTSTRAPPING -> READY', () => {
+    it('executes bootstrap approval and recovery path: PREFLIGHT_RUNNING -> AWAITING_APPROVAL -> BOOTSTRAPPING -> READY', () => {
       sm.transitionTo(RunState.PREFLIGHT_RUNNING);
-      sm.transitionTo(RunState.BOOTSTRAPPING, 'Missing required seed record, bootstrapping');
+      sm.transitionTo(RunState.AWAITING_APPROVAL, 'Missing seed record, awaiting operator approval');
+      expect(sm.getState()).toBe(RunState.AWAITING_APPROVAL);
+
+      sm.transitionTo(RunState.BOOTSTRAPPING, 'Operator approved bootstrap');
       expect(sm.getState()).toBe(RunState.BOOTSTRAPPING);
 
       sm.transitionTo(RunState.READY, 'Bootstrap succeeded');

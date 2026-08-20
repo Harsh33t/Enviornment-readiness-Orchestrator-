@@ -22,9 +22,23 @@ describe('End-to-End Orchestration & Classification', () => {
     expect(result.run.currentState).toBe(RunState.COMPLETED);
     expect(result.run.failureCategory).toBe('NONE');
     expect(result.teardownSummary?.success).toBe(true);
+    expect(result.effectivePreflightReport.overallStatus).toBe('PASS');
   });
 
-  it('scenario 2: bootstraps MISSING_PREREQUISITE and executes to COMPLETED', async () => {
+  it('scenario 2a: enters AWAITING_APPROVAL when bootstrap is required and not auto-approved', async () => {
+    const profile = profileStore.list()[0];
+    const mockServer = new LocalMockServer('MISSING_PREREQUISITE');
+    const orchestrator = new Orchestrator(profile, mockServer);
+
+    const result = await orchestrator.execute({ autoApproveBootstrap: false });
+
+    expect(result.finalClassification).toBe('AWAITING_APPROVAL');
+    expect(result.run.currentState).toBe(RunState.AWAITING_APPROVAL);
+    expect(result.run.failureCategory).toBe('NONE');
+    expect(result.rootCauseMessage).toContain('Awaiting explicit operator approval');
+  });
+
+  it('scenario 2b: bootstraps MISSING_PREREQUISITE and updates authoritative ledger to CLEANED', async () => {
     const profile = profileStore.list()[0];
     const mockServer = new LocalMockServer('MISSING_PREREQUISITE');
     const orchestrator = new Orchestrator(profile, mockServer);
@@ -34,7 +48,14 @@ describe('End-to-End Orchestration & Classification', () => {
     expect(result.finalClassification).toBe('COMPLETED');
     expect(result.bootstrapResults.length).toBeGreaterThan(0);
     expect(result.bootstrapResults[0].success).toBe(true);
-    expect(result.postBootstrapReport?.overallStatus).toBe('PASS');
+
+    // Effective preflight report shows all 5 passed post-bootstrap
+    expect(result.effectivePreflightReport.overallStatus).toBe('PASS');
+    expect(result.effectivePreflightReport.results.filter((r) => r.status === 'PASS')).toHaveLength(5);
+
+    // Authoritative ledger proves resources are CLEANED, not ACTIVE
+    expect(result.finalLedgerEntries.length).toBeGreaterThan(0);
+    expect(result.finalLedgerEntries.every((e) => e.resource.teardownStatus === 'CLEANED')).toBe(true);
     expect(result.teardownSummary?.cleanedCount).toBeGreaterThan(0);
   });
 
@@ -74,7 +95,7 @@ describe('End-to-End Orchestration & Classification', () => {
     expect(result.bootstrapResults.some((r) => !r.success)).toBe(true);
   });
 
-  it('scenario 6: classifies CLEANUP_FAILURE when teardown deletion fails', async () => {
+  it('scenario 6: classifies CLEANUP_FAILURE when teardown deletion fails and exposes failed ledger entries', async () => {
     const profile = profileStore.list()[0];
     const mockServer = new LocalMockServer('CLEANUP_FAILURE');
     const orchestrator = new Orchestrator(profile, mockServer);
@@ -84,7 +105,7 @@ describe('End-to-End Orchestration & Classification', () => {
     expect(result.finalClassification).toBe('CLEANUP_FAILED');
     expect(result.run.currentState).toBe(RunState.CLEANUP_FAILED);
     expect(result.teardownSummary?.failedCount).toBeGreaterThan(0);
-    expect(result.teardownSummary?.failedResources.length).toBeGreaterThan(0);
+    expect(result.finalLedgerEntries.some((e) => e.resource.teardownStatus === 'FAILED')).toBe(true);
   });
 
   it('distinguishes genuine PRODUCT_REGRESSION from environment failures', async () => {

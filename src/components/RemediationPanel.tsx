@@ -1,21 +1,40 @@
 import React from 'react';
 import { RemediationGuidance } from '../runner/remediation.ts';
+import { RunState } from '../core/types.ts';
 
 interface RemediationPanelProps {
   guidanceList: RemediationGuidance[];
+  currentState?: RunState;
   onApproveBootstrap?: () => void;
   isBootstrapping?: boolean;
 }
 
 export const RemediationPanel: React.FC<RemediationPanelProps> = ({
   guidanceList,
+  currentState,
   onApproveBootstrap,
   isBootstrapping,
 }) => {
+  // If no current unresolved issues, don't show active remediation
   if (guidanceList.length === 0) return null;
 
+  const isActionable =
+    currentState === RunState.AWAITING_APPROVAL ||
+    currentState === RunState.PREFLIGHT_RUNNING ||
+    currentState === RunState.PENDING;
+
+  const hasBootstrapAction = guidanceList.some((g) => g.safeBootstrapActionAvailable);
+
   return (
-    <div className="glass-card" style={{ padding: '24px', marginBottom: '24px', borderColor: 'var(--border-highlight)' }}>
+    <div
+      className="glass-card"
+      style={{
+        padding: '24px',
+        marginBottom: '24px',
+        borderColor: 'var(--border-highlight)',
+        animation: 'cardSlideIn var(--dur-normal) var(--ease-out-quart)',
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <span className="badge badge-warn" style={{ marginBottom: '6px' }}>
@@ -27,14 +46,18 @@ export const RemediationPanel: React.FC<RemediationPanelProps> = ({
           </p>
         </div>
 
-        {guidanceList.some((g) => g.safeBootstrapActionAvailable) && (
+        {hasBootstrapAction && (
           <button
             onClick={onApproveBootstrap}
-            disabled={isBootstrapping}
+            disabled={isBootstrapping || !isActionable}
             className="btn btn-primary"
             style={{ fontSize: '0.875rem' }}
           >
-            {isBootstrapping ? '⏳ Bootstrapping Environment...' : '⚡ Approve & Run Bootstrap Setup'}
+            {isBootstrapping
+              ? '⏳ Bootstrapping Environment...'
+              : !isActionable
+              ? '✓ Bootstrap Step Processed'
+              : '⚡ Approve & Run Bootstrap Setup'}
           </button>
         )}
       </div>

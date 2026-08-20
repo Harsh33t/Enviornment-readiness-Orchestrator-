@@ -16,7 +16,13 @@ export const VALID_TRANSITIONS: Record<RunState, RunState[]> = {
     RunState.READY,
     RunState.BLOCKED,
     RunState.BOOTSTRAPPING,
+    RunState.AWAITING_APPROVAL,
     RunState.ENVIRONMENT_FAILED,
+  ],
+  [RunState.AWAITING_APPROVAL]: [
+    RunState.BOOTSTRAPPING,
+    RunState.CLEANING_UP,
+    RunState.COMPLETED,
   ],
   [RunState.BOOTSTRAPPING]: [
     RunState.READY,

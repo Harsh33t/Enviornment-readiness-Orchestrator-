@@ -3,7 +3,7 @@ import { RunStateMachine } from '../core/state-machine.ts';
 import { LocalMockServer } from '../mock-service/mock-server.ts';
 import { PreflightRunner, PreflightReport } from './preflight.ts';
 import { BootstrapExecutor, ActionResult } from './bootstrap.ts';
-import { ResourceLedger, TeardownSummary } from './teardown.ts';
+import { ResourceLedger, TeardownSummary, LedgerEntry } from './teardown.ts';
 
 export interface OrchestrationOptions {
   autoApproveBootstrap?: boolean;
@@ -14,9 +14,11 @@ export interface OrchestrationResult {
   run: Run;
   preflightReport: PreflightReport;
   postBootstrapReport?: PreflightReport;
+  effectivePreflightReport: PreflightReport;
   bootstrapResults: ActionResult[];
   teardownSummary?: TeardownSummary;
-  finalClassification: 'COMPLETED' | 'ENVIRONMENT_FAILED' | 'TEST_FAILED' | 'CLEANUP_FAILED' | 'BLOCKED';
+  finalLedgerEntries: LedgerEntry[];
+  finalClassification: 'COMPLETED' | 'ENVIRONMENT_FAILED' | 'TEST_FAILED' | 'CLEANUP_FAILED' | 'BLOCKED' | 'AWAITING_APPROVAL';
   rootCauseMessage: string;
 }
 
@@ -70,6 +72,24 @@ export class Orchestrator {
   }
 
   /**
+   * Helper to perform synchronized teardown and update both ledger and state-machine.
+   */
+  private async performTeardown(): Promise<TeardownSummary> {
+    const summary = await this.resourceLedger.executeTeardown();
+
+    // Synchronize state-machine records with authoritative ledger statuses
+    for (const entry of this.resourceLedger.getEntries()) {
+      if (entry.resource.teardownStatus === 'CLEANED') {
+        this.stateMachine.markResourceCleaned(entry.resource.id);
+      } else if (entry.resource.teardownStatus === 'FAILED') {
+        this.stateMachine.markResourceCleanupFailed(entry.resource.id);
+      }
+    }
+
+    return summary;
+  }
+
+  /**
    * Executes the full orchestrated run.
    */
   public async execute(options: OrchestrationOptions = {}): Promise<OrchestrationResult> {
@@ -91,7 +111,7 @@ export class Orchestrator {
 
       // Run cleanup for safety
       this.stateMachine.transitionTo(RunState.CLEANING_UP, 'Cleaning any ephemeral preflight allocations');
-      const teardownSummary = await this.resourceLedger.executeTeardown();
+      const teardownSummary = await this.performTeardown();
 
       if (!teardownSummary.success) {
         this.stateMachine.setFailureCategory('CLEANUP_FAILURE');
@@ -99,19 +119,23 @@ export class Orchestrator {
         return {
           run: this.stateMachine.getRun(),
           preflightReport,
+          effectivePreflightReport: preflightReport,
           bootstrapResults,
           teardownSummary,
+          finalLedgerEntries: this.resourceLedger.getEntries(),
           finalClassification: 'CLEANUP_FAILED',
           rootCauseMessage: 'Preflight blocked due to environment failure, and cleanup subsequently failed.',
         };
       }
 
-      this.stateMachine.transitionTo(RunState.COMPLETED, 'Preflight blocked run cleanly halted');
+      this.stateMachine.transitionTo(RunState.COMPLETED, 'Preflight blocked run cleanly halted and cleaned');
       return {
         run: this.stateMachine.getRun(),
         preflightReport,
+        effectivePreflightReport: preflightReport,
         bootstrapResults,
         teardownSummary,
+        finalLedgerEntries: this.resourceLedger.getEntries(),
         finalClassification: 'BLOCKED',
         rootCauseMessage: `Preflight checks blocked run: ${preflightReport.summary}`,
       };
@@ -121,13 +145,21 @@ export class Orchestrator {
     let postBootstrapReport: PreflightReport | undefined;
     if (preflightReport.suggestedRunState === 'BOOTSTRAPPING') {
       if (!options.autoApproveBootstrap) {
-        // Wait for explicit approval if autoApprove is false
+        // Transition to explicit AWAITING_APPROVAL state without marking failure
+        this.stateMachine.setFailureCategory('NONE');
+        this.stateMachine.transitionTo(
+          RunState.AWAITING_APPROVAL,
+          'Preflight detected missing prerequisite records. Paused awaiting explicit operator approval.'
+        );
+
         return {
           run: this.stateMachine.getRun(),
           preflightReport,
+          effectivePreflightReport: preflightReport,
           bootstrapResults,
-          finalClassification: 'ENVIRONMENT_FAILED',
-          rootCauseMessage: 'Bootstrap required but pending explicit operator approval.',
+          finalLedgerEntries: this.resourceLedger.getEntries(),
+          finalClassification: 'AWAITING_APPROVAL',
+          rootCauseMessage: 'Preflight checks passed with warnings (missing seed records). Awaiting explicit operator approval to run bootstrap actions.',
         };
       }
 
@@ -156,7 +188,7 @@ export class Orchestrator {
 
         // Rollback / cleanup created resources
         this.stateMachine.transitionTo(RunState.CLEANING_UP, 'Tearing down partially provisioned bootstrap resources');
-        const teardownSummary = await this.resourceLedger.executeTeardown();
+        const teardownSummary = await this.performTeardown();
 
         if (!teardownSummary.success) {
           this.stateMachine.setFailureCategory('CLEANUP_FAILURE');
@@ -164,8 +196,10 @@ export class Orchestrator {
           return {
             run: this.stateMachine.getRun(),
             preflightReport,
+            effectivePreflightReport: preflightReport,
             bootstrapResults,
             teardownSummary,
+            finalLedgerEntries: this.resourceLedger.getEntries(),
             finalClassification: 'CLEANUP_FAILED',
             rootCauseMessage: 'Bootstrap setup failed, and subsequent teardown failed.',
           };
@@ -175,8 +209,10 @@ export class Orchestrator {
         return {
           run: this.stateMachine.getRun(),
           preflightReport,
+          effectivePreflightReport: preflightReport,
           bootstrapResults,
           teardownSummary,
+          finalLedgerEntries: this.resourceLedger.getEntries(),
           finalClassification: 'ENVIRONMENT_FAILED',
           rootCauseMessage: 'Bootstrap setup action failed to ready the test environment.',
         };
@@ -188,19 +224,24 @@ export class Orchestrator {
         this.stateMachine.setFailureCategory('ENVIRONMENT_SETUP');
         this.stateMachine.transitionTo(RunState.ENVIRONMENT_FAILED, 'Post-bootstrap preflight verification failed');
         this.stateMachine.transitionTo(RunState.CLEANING_UP, 'Cleaning resources after failed post-bootstrap check');
-        const teardownSummary = await this.resourceLedger.executeTeardown();
+        const teardownSummary = await this.performTeardown();
         this.stateMachine.transitionTo(RunState.COMPLETED, 'Terminated after failed verification');
         return {
           run: this.stateMachine.getRun(),
           preflightReport,
           postBootstrapReport,
+          effectivePreflightReport: postBootstrapReport,
           bootstrapResults,
           teardownSummary,
+          finalLedgerEntries: this.resourceLedger.getEntries(),
           finalClassification: 'ENVIRONMENT_FAILED',
           rootCauseMessage: 'Post-bootstrap preflight check failed to reach READY state.',
         };
       }
     }
+
+    // Determine effective preflight report
+    const effectivePreflightReport = postBootstrapReport || preflightReport;
 
     // Step 5: Transition to READY
     this.stateMachine.transitionTo(RunState.READY, 'Environment verified READY for E2E test suite execution');
@@ -217,7 +258,7 @@ export class Orchestrator {
 
     // Step 7: Teardown
     this.stateMachine.transitionTo(RunState.CLEANING_UP, 'Executing teardown across all ledgered resources');
-    const teardownSummary = await this.resourceLedger.executeTeardown();
+    const teardownSummary = await this.performTeardown();
 
     if (!teardownSummary.success) {
       this.stateMachine.setFailureCategory('CLEANUP_FAILURE');
@@ -226,8 +267,10 @@ export class Orchestrator {
         run: this.stateMachine.getRun(),
         preflightReport,
         postBootstrapReport,
+        effectivePreflightReport,
         bootstrapResults,
         teardownSummary,
+        finalLedgerEntries: this.resourceLedger.getEntries(),
         finalClassification: 'CLEANUP_FAILED',
         rootCauseMessage: `Cleanup failed for ${teardownSummary.failedCount} resource(s). Manual operator intervention required.`,
       };
@@ -245,8 +288,10 @@ export class Orchestrator {
       run: this.stateMachine.getRun(),
       preflightReport,
       postBootstrapReport,
+      effectivePreflightReport,
       bootstrapResults,
       teardownSummary,
+      finalLedgerEntries: this.resourceLedger.getEntries(),
       finalClassification,
       rootCauseMessage,
     };

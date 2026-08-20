@@ -19,7 +19,34 @@ export interface ValidationError {
 }
 
 /**
- * Validates an environment profile against safety and operational constraints.
+ * Checks if a string or object recursively contains plaintext credentials.
+ */
+export function hasSensitivePayload(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+
+  for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+    const lowerKey = key.toLowerCase();
+    if (
+      lowerKey.includes('password') ||
+      lowerKey.includes('secret') ||
+      lowerKey.includes('private_key') ||
+      lowerKey.includes('api_key') ||
+      lowerKey.includes('credential') ||
+      lowerKey.includes('auth_header') ||
+      lowerKey.includes('bearer')
+    ) {
+      return true;
+    }
+    if (value && typeof value === 'object' && hasSensitivePayload(value)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Validates an environment profile against strict safety and operational constraints.
  */
 export function validateEnvironmentProfile(profile: Partial<EnvironmentProfile>): ValidationError[] {
   const errors: ValidationError[] = [];
@@ -33,19 +60,58 @@ export function validateEnvironmentProfile(profile: Partial<EnvironmentProfile>)
     errors.push({ field: 'name', message: 'Safe display name is required.' });
   }
 
-  // Allowlisted Mock URL check
+  // Exact Allowlisted Mock URL check with robust URL parsing
   if (!profile.mockBaseUrl || typeof profile.mockBaseUrl !== 'string') {
     errors.push({ field: 'mockBaseUrl', message: 'Mock Base URL is required.' });
   } else {
-    const isAllowlisted = ALLOWLISTED_MOCK_BASE_URLS.some((allowed) =>
-      profile.mockBaseUrl?.startsWith(allowed)
-    );
-    if (!isAllowlisted) {
+    try {
+      const rawUrl = profile.mockBaseUrl.trim();
+
+      // Check against supported mock schemes
+      if (rawUrl.startsWith('mock://')) {
+        const isMockAllowlisted = ALLOWLISTED_MOCK_BASE_URLS.includes(rawUrl);
+        if (!isMockAllowlisted) {
+          errors.push({
+            field: 'mockBaseUrl',
+            message: `Disallowed mock URL '${rawUrl}'. Must be one of: [${ALLOWLISTED_MOCK_BASE_URLS.join(', ')}]`,
+          });
+        }
+      } else {
+        const parsed = new URL(rawUrl);
+
+        // Reject credentials in URLs
+        if (parsed.username || parsed.password) {
+          errors.push({
+            field: 'mockBaseUrl',
+            message: 'Embedded credentials (username/password) in URL are strictly prohibited.',
+          });
+        }
+
+        // Only allow http: on localhost or 127.0.0.1
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          errors.push({
+            field: 'mockBaseUrl',
+            message: `Unsupported protocol '${parsed.protocol}'. Only local HTTP mock endpoints are supported.`,
+          });
+        }
+
+        // Exact match of normalized origin + pathname
+        const normalized = `${parsed.origin}${parsed.pathname.replace(/\/$/, '')}`;
+        const isExactMatch = ALLOWLISTED_MOCK_BASE_URLS.includes(normalized);
+
+        if (!isExactMatch) {
+          errors.push({
+            field: 'mockBaseUrl',
+            message: `Disallowed Base URL '${rawUrl}'. Normalized URL '${normalized}' must be in the local mock allowlist: [${ALLOWLISTED_MOCK_BASE_URLS.join(
+              ', '
+            )}]`,
+          });
+        }
+      }
+    } catch {
       errors.push({
         field: 'mockBaseUrl',
-        message: `Disallowed Base URL '${profile.mockBaseUrl}'. Base URL must be in the local mock allowlist: [${ALLOWLISTED_MOCK_BASE_URLS.join(
-          ', '
-        )}]`,
+        message: `Malformed mock Base URL '${profile.mockBaseUrl}'.`,
       });
     }
   }
@@ -102,19 +168,11 @@ export function validateEnvironmentProfile(profile: Partial<EnvironmentProfile>)
       }
 
       // Check for plaintext credential leaks in payloads
-      if (action.payload) {
-        const payloadStr = JSON.stringify(action.payload).toLowerCase();
-        if (
-          payloadStr.includes('password') ||
-          payloadStr.includes('secret_key') ||
-          payloadStr.includes('private_key') ||
-          payloadStr.includes('live_api_key')
-        ) {
-          errors.push({
-            field: `approvedSetupActions[${idx}].payload`,
-            message: 'Plaintext credentials or live secrets detected in action payload. Plaintext secrets are strictly prohibited.',
-          });
-        }
+      if (action.payload && hasSensitivePayload(action.payload)) {
+        errors.push({
+          field: `approvedSetupActions[${idx}].payload`,
+          message: 'Plaintext credentials or live secrets detected in action payload. Plaintext secrets are strictly prohibited.',
+        });
       }
     });
   }

@@ -11,9 +11,10 @@ export interface PreflightReport {
 
 /**
  * Sanitizes any potential secret fields, auth tokens, or sensitive headers from evidence payloads.
+ * Operates recursively on nested objects and arrays without leaking prefix characters.
  */
 export function sanitizeEvidence(rawPayload: Record<string, unknown> | undefined): Record<string, unknown> {
-  if (!rawPayload) return {};
+  if (!rawPayload || typeof rawPayload !== 'object') return {};
   const sanitized: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(rawPayload)) {
@@ -24,13 +25,17 @@ export function sanitizeEvidence(rawPayload: Record<string, unknown> | undefined
       lowerKey.includes('password') ||
       lowerKey.includes('auth') ||
       lowerKey.includes('cookie') ||
-      lowerKey.includes('key')
+      lowerKey.includes('key') ||
+      lowerKey.includes('credential') ||
+      lowerKey.includes('bearer')
     ) {
-      if (typeof value === 'string' && value.length > 8) {
-        sanitized[key] = `[MASKED_SECRET_${value.substring(0, 3)}***]`;
-      } else {
-        sanitized[key] = '[REDACTED_SENSITIVE]';
-      }
+      sanitized[key] = '[REDACTED_SECRET]';
+    } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+      sanitized[key] = sanitizeEvidence(value as Record<string, unknown>);
+    } else if (Array.isArray(value)) {
+      sanitized[key] = value.map((item) =>
+        item && typeof item === 'object' ? sanitizeEvidence(item as Record<string, unknown>) : item
+      );
     } else {
       sanitized[key] = value;
     }

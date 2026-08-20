@@ -37,8 +37,21 @@
   --shadow-subtle: 0 4px 20px -2px rgba(0, 0, 0, 0.4);
   --shadow-glow: 0 0 25px -5px rgba(99, 102, 241, 0.25);
 
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-smooth: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* Easing curves - Natural Deceleration */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Timing */
+  --dur-instant: 120ms;
+  --dur-fast: 200ms;
+  --dur-normal: 300ms;
+  --dur-flow: 450ms;
+
+  --transition-fast: var(--dur-instant) var(--ease-out-quart);
+  --transition-smooth: var(--dur-fast) var(--ease-out-quart);
+  --transition-normal: var(--dur-normal) var(--ease-out-quart);
 }
 
 * {
@@ -87,7 +100,7 @@ code, pre {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-subtle);
-  transition: border-color var(--transition-smooth), transform var(--transition-smooth);
+  transition: border-color var(--transition-smooth), transform var(--transition-smooth), box-shadow var(--transition-smooth);
 }
 
 .glass-card:hover {
@@ -105,6 +118,7 @@ code, pre {
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+  transition: background-color var(--transition-smooth), color var(--transition-smooth), border-color var(--transition-smooth), transform var(--transition-fast);
 }
 
 .badge-info {
@@ -117,21 +131,31 @@ code, pre {
   background: var(--status-pass-bg);
   color: var(--status-pass);
   border: 1px solid rgba(16, 185, 129, 0.25);
+  animation: badgePop var(--dur-fast) var(--ease-out-expo);
 }
 
 .badge-warn {
   background: var(--status-warn-bg);
   color: var(--status-warn);
   border: 1px solid rgba(245, 158, 11, 0.25);
+  animation: badgePop var(--dur-fast) var(--ease-out-expo);
 }
 
 .badge-block {
   background: var(--status-block-bg);
   color: var(--status-block);
   border: 1px solid rgba(239, 68, 68, 0.25);
+  animation: badgePop var(--dur-fast) var(--ease-out-expo);
 }
 
-/* Button & Interactive */
+.badge-evaluating {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-indigo);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  animation: evaluatingPulse 1.2s infinite ease-in-out;
+}
+
+/* Button & Interactive Micro-interactions */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -144,8 +168,13 @@ code, pre {
   font-weight: 600;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: all var(--transition-fast);
+  transition: transform var(--transition-fast), box-shadow var(--transition-smooth), background-color var(--transition-smooth), opacity var(--transition-fast);
   text-decoration: none;
+  user-select: none;
+}
+
+.btn:active {
+  transform: scale(0.97);
 }
 
 .btn-primary {
@@ -154,9 +183,10 @@ code, pre {
   box-shadow: var(--shadow-glow);
 }
 
-.btn-primary:hover {
-  opacity: 0.92;
+.btn-primary:hover:not(:disabled) {
+  opacity: 0.94;
   transform: translateY(-1px);
+  box-shadow: 0 0 28px -3px rgba(99, 102, 241, 0.4);
 }
 
 .btn-secondary {
@@ -165,9 +195,16 @@ code, pre {
   color: var(--text-primary);
 }
 
-.btn-secondary:hover {
+.btn-secondary:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
 }
 
 /* Layout Utilities */
@@ -189,4 +226,105 @@ code, pre {
 
 .grid-cols-3 {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+/* Spinner */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spinSmooth 0.7s linear infinite;
+  display: inline-block;
+}
+
+/* Keyframe Animations */
+@keyframes spinSmooth {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes badgePop {
+  0% {
+    transform: scale(0.88);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes checkRowIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes evaluatingPulse {
+  0%, 100% {
+    opacity: 1;
+    border-color: rgba(99, 102, 241, 0.35);
+  }
+  50% {
+    opacity: 0.6;
+    border-color: rgba(99, 102, 241, 0.7);
+  }
+}
+
+@keyframes cardSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes glowPulseSuccess {
+  0%, 100% {
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4), 0 0 15px -3px rgba(16, 185, 129, 0.15);
+  }
+  50% {
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4), 0 0 25px 0px rgba(16, 185, 129, 0.3);
+  }
+}
+
+@keyframes glowPulseBlock {
+  0%, 100% {
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4), 0 0 15px -3px rgba(239, 68, 68, 0.15);
+  }
+  50% {
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4), 0 0 25px 0px rgba(239, 68, 68, 0.3);
+  }
+}
+
+@keyframes glowPulseWarn {
+  0%, 100% {
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4), 0 0 15px -3px rgba(244, 63, 94, 0.15);
+  }
+  50% {
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4), 0 0 25px 0px rgba(244, 63, 94, 0.3);
+  }
+}
+
+/* Accessibility - Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

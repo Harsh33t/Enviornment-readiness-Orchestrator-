@@ -79,7 +79,7 @@ describe('ResourceLedger & Idempotent Teardown', () => {
     expect(summary.success).toBe(false);
     expect(summary.failedCount).toBe(1);
     expect(summary.failedResources).toHaveLength(1);
-    expect(summary.failedResources[0].resource.id).toBe('res_opaque_001');
+    expect(summary.failedResources[0].id).toBe('res_opaque_001');
     expect(summary.failedResources[0].error).toContain('Mock teardown failed');
     expect(ledger.getEntries()[0].resource.teardownStatus).toBe('FAILED');
   });

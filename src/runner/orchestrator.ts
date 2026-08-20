@@ -1,6 +1,8 @@
 import { RunState, EnvironmentProfile, Run } from '../core/types.ts';
+import { EnvironmentAdapter } from '../core/adapter.ts';
 import { RunStateMachine } from '../core/state-machine.ts';
 import { LocalMockServer } from '../mock-service/mock-server.ts';
+import { MockEnvironmentAdapter } from '../mock-service/mock-adapter.ts';
 import { PreflightRunner, PreflightReport } from './preflight.ts';
 import { BootstrapExecutor, ActionResult } from './bootstrap.ts';
 import { ResourceLedger, TeardownSummary, LedgerEntry } from './teardown.ts';
@@ -24,22 +26,28 @@ export interface OrchestrationResult {
 
 /**
  * End-to-End Run Orchestrator implementing complete preflight, bootstrap, test, teardown, and failure classification lifecycle.
+ * Executes seamlessly over the EnvironmentAdapter abstraction.
  */
 export class Orchestrator {
   private profile: EnvironmentProfile;
-  private mockServer: LocalMockServer;
+  private adapter: EnvironmentAdapter;
   private stateMachine: RunStateMachine;
   private preflightRunner: PreflightRunner;
   private bootstrapExecutor: BootstrapExecutor;
   private resourceLedger: ResourceLedger;
 
-  constructor(profile: EnvironmentProfile, mockServer: LocalMockServer) {
+  constructor(profile: EnvironmentProfile, serverOrAdapter: LocalMockServer | EnvironmentAdapter) {
     this.profile = profile;
-    this.mockServer = mockServer;
+    if ('executeCheck' in serverOrAdapter) {
+      this.adapter = serverOrAdapter;
+    } else {
+      this.adapter = new MockEnvironmentAdapter(serverOrAdapter);
+    }
+
     this.stateMachine = new RunStateMachine(profile.id);
-    this.preflightRunner = new PreflightRunner(mockServer);
-    this.bootstrapExecutor = new BootstrapExecutor(mockServer);
-    this.resourceLedger = new ResourceLedger(mockServer);
+    this.preflightRunner = new PreflightRunner(this.adapter, profile);
+    this.bootstrapExecutor = new BootstrapExecutor(this.adapter);
+    this.resourceLedger = new ResourceLedger(this.adapter);
 
     // Register any profile-configured test teardown fixtures in the ledger
     if (Array.isArray(profile.teardownActions)) {
@@ -67,8 +75,8 @@ export class Orchestrator {
     return this.resourceLedger;
   }
 
-  public getMockServer(): LocalMockServer {
-    return this.mockServer;
+  public getAdapter(): EnvironmentAdapter {
+    return this.adapter;
   }
 
   /**

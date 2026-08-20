@@ -1,5 +1,7 @@
 import { ResourceRecord, TeardownAction } from '../core/types.ts';
+import { EnvironmentAdapter } from '../core/adapter.ts';
 import { LocalMockServer } from '../mock-service/mock-server.ts';
+import { MockEnvironmentAdapter } from '../mock-service/mock-adapter.ts';
 
 export interface LedgerEntry {
   resource: ResourceRecord;
@@ -9,23 +11,28 @@ export interface LedgerEntry {
 }
 
 export interface TeardownSummary {
-  success: boolean;
   totalTracked: number;
   cleanedCount: number;
   failedCount: number;
-  failedResources: LedgerEntry[];
-  executedAt: string;
+  success: boolean;
+  failedResources: Array<{ id: string; error: string }>;
+  timestamp: string;
 }
 
 /**
- * Run-scoped Resource Ledger and Idempotent Teardown Manager.
+ * Run-Scoped Resource Ledger and Idempotent Teardown Manager.
+ * Tracks ephemeral test resources and executes cleanup via EnvironmentAdapter.
  */
 export class ResourceLedger {
+  private adapter: EnvironmentAdapter;
   private ledger: Map<string, LedgerEntry> = new Map();
-  private mockServer: LocalMockServer;
 
-  constructor(mockServer: LocalMockServer) {
-    this.mockServer = mockServer;
+  constructor(serverOrAdapter: LocalMockServer | EnvironmentAdapter) {
+    if ('executeTeardownAction' in serverOrAdapter) {
+      this.adapter = serverOrAdapter;
+    } else {
+      this.adapter = new MockEnvironmentAdapter(serverOrAdapter);
+    }
   }
 
   /**
@@ -38,63 +45,78 @@ export class ResourceLedger {
     });
   }
 
-  /**
-   * Returns all entries in the ledger.
-   */
   public getEntries(): LedgerEntry[] {
     return Array.from(this.ledger.values());
   }
 
-  /**
-   * Returns active (uncleaned) resources.
-   */
-  public getActiveResources(): LedgerEntry[] {
-    return this.getEntries().filter((e) => e.resource.teardownStatus === 'ACTIVE');
+  public getEntry(id: string): LedgerEntry | undefined {
+    return this.ledger.get(id);
+  }
+
+  public getActiveResources(): ResourceRecord[] {
+    return Array.from(this.ledger.values())
+      .filter((e) => e.resource.teardownStatus === 'ACTIVE')
+      .map((e) => e.resource);
   }
 
   /**
-   * Executes idempotent teardown across all registered active resources.
+   * Executes idempotent teardown across all ledgered active resources via EnvironmentAdapter.
    */
   public async executeTeardown(): Promise<TeardownSummary> {
-    const entries = this.getEntries();
+    const entries = Array.from(this.ledger.values());
     let cleanedCount = 0;
     let failedCount = 0;
-    const failedResources: LedgerEntry[] = [];
+    const failedResources: Array<{ id: string; error: string }> = [];
 
     for (const entry of entries) {
-      // Idempotent check: skip already cleaned resources
+      // Idempotent guard: if already CLEANED, do not re-delete
       if (entry.resource.teardownStatus === 'CLEANED') {
         cleanedCount++;
         continue;
       }
 
-      try {
-        const res = await this.mockServer.deleteRecord(entry.resource.id);
-        if (res.status === 200) {
-          entry.resource.teardownStatus = 'CLEANED';
-          entry.cleanedAt = new Date().toISOString();
-          cleanedCount++;
-        } else {
+      if (entry.teardownAction) {
+        try {
+          const res = await this.adapter.executeTeardownAction({
+            action: entry.teardownAction,
+            timeoutMs: 3000,
+          });
+
+          if (res.success) {
+            entry.resource.teardownStatus = 'CLEANED';
+            entry.cleanedAt = new Date().toISOString();
+            cleanedCount++;
+          } else {
+            const err = res.error || `Teardown failed with status ${res.statusCode}`;
+            entry.resource.teardownStatus = 'FAILED';
+            entry.error = err;
+            failedCount++;
+            failedResources.push({ id: entry.resource.id, error: err });
+          }
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : 'Teardown execution error';
           entry.resource.teardownStatus = 'FAILED';
-          entry.error = (res.data.error as string) || `Teardown deletion failed with status ${res.status}`;
+          entry.error = errMsg;
           failedCount++;
-          failedResources.push(entry);
+          failedResources.push({ id: entry.resource.id, error: errMsg });
         }
-      } catch (err: unknown) {
-        entry.resource.teardownStatus = 'FAILED';
-        entry.error = err instanceof Error ? err.message : 'Unknown teardown exception';
-        failedCount++;
-        failedResources.push(entry);
+      } else {
+        // Ephemeral in-memory resource without external teardown hook -> clean in ledger
+        entry.resource.teardownStatus = 'CLEANED';
+        entry.cleanedAt = new Date().toISOString();
+        cleanedCount++;
       }
     }
 
+    const overallSuccess = failedCount === 0;
+
     return {
-      success: failedCount === 0,
       totalTracked: entries.length,
       cleanedCount,
       failedCount,
+      success: overallSuccess,
       failedResources,
-      executedAt: new Date().toISOString(),
+      timestamp: new Date().toISOString(),
     };
   }
 

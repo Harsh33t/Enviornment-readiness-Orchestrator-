@@ -1,5 +1,7 @@
 import { SetupAction, ActionType, ResourceRecord } from '../core/types.ts';
+import { EnvironmentAdapter } from '../core/adapter.ts';
 import { LocalMockServer } from '../mock-service/mock-server.ts';
+import { MockEnvironmentAdapter } from '../mock-service/mock-adapter.ts';
 import { sanitizeEvidence } from './preflight.ts';
 
 export interface ActionResult {
@@ -33,16 +35,18 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operationName: s
 }
 
 /**
- * Safe Bootstrap Executor.
- * Strictly executes only two approved action types: MOCK_API_REQUEST and LOCAL_MODULE.
- * Explicitly disallows shell execution, subprocesses, or arbitrary evaluation.
+ * Safe Bootstrap Executor executing via EnvironmentAdapter.
  */
 export class BootstrapExecutor {
-  private mockServer: LocalMockServer;
+  private adapter: EnvironmentAdapter;
   private executedActionIds: Set<string> = new Set();
 
-  constructor(mockServer: LocalMockServer) {
-    this.mockServer = mockServer;
+  constructor(serverOrAdapter: LocalMockServer | EnvironmentAdapter) {
+    if ('executeSetupAction' in serverOrAdapter) {
+      this.adapter = serverOrAdapter;
+    } else {
+      this.adapter = new MockEnvironmentAdapter(serverOrAdapter);
+    }
   }
 
   /**
@@ -67,7 +71,7 @@ export class BootstrapExecutor {
   }
 
   /**
-   * Executes a single setup action with bounded retry logic and timeout enforcement.
+   * Executes a single setup action with bounded retry logic and timeout enforcement through EnvironmentAdapter.
    */
   public async executeAction(action: SetupAction): Promise<{ actionResult: ActionResult; createdResource?: ResourceRecord }> {
     this.validateAction(action);
@@ -83,53 +87,20 @@ export class BootstrapExecutor {
 
     while (retries <= action.maxRetries) {
       try {
-        if (action.type === ActionType.MOCK_API_REQUEST) {
-          const res = await withTimeout(
-            this.mockServer.createSeedRecord(action.targetResourceName),
-            action.timeoutMs,
-            action.name
-          );
-          const duration = Date.now() - start;
+        const res = await withTimeout(
+          this.adapter.executeSetupAction({ action, timeoutMs: action.timeoutMs }),
+          action.timeoutMs,
+          action.name
+        );
+        const duration = Date.now() - start;
 
-          if (res.status === 201 && res.data.record) {
-            this.executedActionIds.add(action.id);
-
-            const resource: ResourceRecord = {
-              id: res.data.record.id,
-              resourceType: 'MOCK_SEED_RECORD',
-              resourceKey: res.data.record.name,
-              createdViaActionId: action.id,
-              createdAt: new Date().toISOString(),
-              teardownStatus: 'ACTIVE',
-            };
-
-            const result: ActionResult = {
-              actionId: action.id,
-              name: action.name,
-              type: action.type,
-              success: true,
-              statusCode: res.status,
-              durationMs: duration,
-              retriesAttempted: retries,
-              createdResourceId: resource.id,
-              evidence: sanitizeEvidence(res.data),
-              timestamp: new Date().toISOString(),
-            };
-
-            return { actionResult: result, createdResource: resource };
-          } else {
-            lastError = (res.data.error as string) || `Mock API returned status ${res.status}`;
-          }
-        } else if (action.type === ActionType.LOCAL_MODULE) {
-          // Local Module safe deterministic handler
+        if (res.success && res.createdResource) {
           this.executedActionIds.add(action.id);
-          const duration = Date.now() - start;
-          const resourceId = `mod_rec_${Date.now()}`;
 
           const resource: ResourceRecord = {
-            id: resourceId,
-            resourceType: 'LOCAL_MODULE_RESOURCE',
-            resourceKey: action.targetResourceName,
+            id: res.createdResource.id,
+            resourceType: action.type === ActionType.MOCK_API_REQUEST ? 'MOCK_SEED_RECORD' : 'LOCAL_MODULE_RESOURCE',
+            resourceKey: res.createdResource.name,
             createdViaActionId: action.id,
             createdAt: new Date().toISOString(),
             teardownStatus: 'ACTIVE',
@@ -140,15 +111,17 @@ export class BootstrapExecutor {
             name: action.name,
             type: action.type,
             success: true,
-            statusCode: 200,
+            statusCode: res.statusCode,
             durationMs: duration,
             retriesAttempted: retries,
             createdResourceId: resource.id,
-            evidence: { module: action.name, executed: true },
+            evidence: sanitizeEvidence(res.details),
             timestamp: new Date().toISOString(),
           };
 
           return { actionResult: result, createdResource: resource };
+        } else {
+          lastError = res.error || `Setup action failed with status ${res.statusCode}`;
         }
       } catch (err: unknown) {
         lastError = err instanceof Error ? err.message : 'Unknown execution error';

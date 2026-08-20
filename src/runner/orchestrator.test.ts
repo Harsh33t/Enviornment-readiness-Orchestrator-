@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { LocalMockServer } from '../mock-service/mock-server.ts';
+import { EnvironmentAdapter } from '../core/adapter.ts';
 import { EnvironmentProfileStore } from '../core/profile-store.ts';
 import { Orchestrator } from './orchestrator.ts';
-import { RunState } from '../core/types.ts';
+import { RunState, CheckStatus } from '../core/types.ts';
 
 describe('End-to-End Orchestration & Classification', () => {
   let profileStore: EnvironmentProfileStore;
@@ -122,5 +123,41 @@ describe('End-to-End Orchestration & Classification', () => {
     expect(result.run.failureCategory).toBe('PRODUCT_REGRESSION');
     expect(result.teardownSummary?.success).toBe(true);
     expect(result.rootCauseMessage).toContain('Genuine product regression');
+  });
+
+  it('executes seamlessly via custom EnvironmentAdapter implementation', async () => {
+    const profile = profileStore.list()[0];
+    const customAdapter: EnvironmentAdapter = {
+      adapterName: 'CustomTestAdapter',
+      async executeCheck(req) {
+        return {
+          status: CheckStatus.PASS,
+          statusCode: 200,
+          responseTimeMs: 5,
+          details: `Checked ${req.definition.name}`,
+        };
+      },
+      async executeSetupAction(req) {
+        return {
+          success: true,
+          statusCode: 201,
+          createdResource: { id: 'custom_res_1', name: req.action.targetResourceName },
+        };
+      },
+      async executeTeardownAction() {
+        return {
+          success: true,
+          statusCode: 200,
+        };
+      },
+    };
+
+    const orchestrator = new Orchestrator(profile, customAdapter);
+    expect(orchestrator.getAdapter().adapterName).toBe('CustomTestAdapter');
+
+    const result = await orchestrator.execute({ autoApproveBootstrap: true });
+    expect(result.finalClassification).toBe('COMPLETED');
+    expect(result.effectivePreflightReport.overallStatus).toBe('PASS');
+    expect(result.teardownSummary?.success).toBe(true);
   });
 });

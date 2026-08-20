@@ -41,6 +41,30 @@ To maintain complete safety and zero external dependencies as an educational/por
 
 ---
 
+## 🏗️ System Architecture & Adapter Boundary
+
+```mermaid
+flowchart TD
+    UI[React Operator Dashboard] --> ORCH[Lifecycle Orchestrator]
+    ORCH --> SM[RunStateMachine]
+    ORCH --> LEDGER[ResourceLedger]
+    ORCH --> RUNNER[PreflightRunner & BootstrapExecutor]
+    
+    subgraph AdapterBoundary [Extensible Adapter Layer]
+        RUNNER --> ADAPTER[<< EnvironmentAdapter >>]
+        LEDGER --> ADAPTER
+    end
+
+    subgraph Implementations [Adapter Implementations]
+        ADAPTER -.-> MOCK[MockEnvironmentAdapter]
+        ADAPTER -.-> PROD["(Future Production Adapter: HTTP / gRPC / K8s)"]
+    end
+
+    MOCK --> SERVER[LocalMockServer]
+```
+
+---
+
 ## ⚙️ Lifecycle State Machine
 
 ```mermaid

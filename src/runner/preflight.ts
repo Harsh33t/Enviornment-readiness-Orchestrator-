@@ -1,5 +1,7 @@
-import { CheckStatus, CheckResult } from '../core/types.ts';
+import { CheckStatus, CheckResult, EnvironmentProfile, CheckDefinition } from '../core/types.ts';
+import { EnvironmentAdapter } from '../core/adapter.ts';
 import { LocalMockServer } from '../mock-service/mock-server.ts';
+import { MockEnvironmentAdapter } from '../mock-service/mock-adapter.ts';
 
 export interface PreflightReport {
   overallStatus: CheckStatus;
@@ -44,246 +46,200 @@ export function sanitizeEvidence(rawPayload: Record<string, unknown> | undefined
   return sanitized;
 }
 
+const DEFAULT_CHECKS: CheckDefinition[] = [
+  {
+    id: 'chk_reachability',
+    name: 'Target Mock Base Reachability',
+    category: 'reachability',
+    purpose: 'Verify target mock server is online',
+    endpoint: '/ping',
+    expectedStatus: 200,
+    timeoutMs: 2000,
+    remediation: 'Check mock service process',
+  },
+  {
+    id: 'chk_health',
+    name: 'Service Health Status',
+    category: 'health',
+    purpose: 'Verify service health status',
+    endpoint: '/health',
+    expectedStatus: 200,
+    timeoutMs: 2000,
+    remediation: 'Inspect mock service container',
+  },
+  {
+    id: 'chk_auth',
+    name: 'Service Account Auth',
+    category: 'auth',
+    purpose: 'Verify auth token validity',
+    endpoint: '/auth',
+    expectedStatus: 200,
+    timeoutMs: 2000,
+    remediation: 'Refresh service account mock credentials',
+  },
+  {
+    id: 'chk_records',
+    name: 'Prerequisite Test Seed Records',
+    category: 'data',
+    purpose: 'Check required test records exist',
+    endpoint: '/records',
+    expectedStatus: 200,
+    timeoutMs: 2000,
+    remediation: 'Run approved bootstrap setup action',
+  },
+  {
+    id: 'chk_feature_flags',
+    name: 'Feature Flag Configuration',
+    category: 'feature_flag',
+    purpose: 'Verify required feature flags are enabled',
+    endpoint: '/flags',
+    expectedStatus: 200,
+    timeoutMs: 2000,
+    remediation: 'Enable required flag in configuration',
+  },
+];
+
 /**
- * Deterministic Preflight Checks Runner against local mock service.
+ * Deterministic Preflight Checks Runner using EnvironmentAdapter.
  */
 export class PreflightRunner {
-  private mockServer: LocalMockServer;
+  private adapter: EnvironmentAdapter;
+  private profile?: EnvironmentProfile;
 
-  constructor(mockServer: LocalMockServer) {
-    this.mockServer = mockServer;
-  }
-
-  /**
-   * Check 1: Reachability
-   */
-  public async checkReachability(_timeoutMs: number = 2000): Promise<CheckResult> {
-    const start = Date.now();
-    try {
-      const res = await this.mockServer.getPing();
-      const duration = Date.now() - start;
-      const pass = res.status === 200 && res.data.reachable;
-
-      return {
-        checkId: 'chk_reachability',
-        name: 'Target Base URL Reachability',
-        status: pass ? CheckStatus.PASS : CheckStatus.BLOCK,
-        evidence: {
-          statusCode: res.status,
-          responseTimeMs: duration,
-          details: pass ? 'Target mock server reachable' : 'Target URL unreachable',
-          payloadSnippet: sanitizeEvidence(res.data),
-        },
-        timestamp: new Date().toISOString(),
-        remediation: pass ? undefined : 'Verify network connectivity and base URL configuration.',
-      };
-    } catch (err: unknown) {
-      return {
-        checkId: 'chk_reachability',
-        name: 'Target Base URL Reachability',
-        status: CheckStatus.BLOCK,
-        evidence: {
-          details: err instanceof Error ? err.message : 'Network error connecting to endpoint',
-        },
-        timestamp: new Date().toISOString(),
-        remediation: 'Check local mock service status and ensure port is accessible.',
-      };
+  constructor(serverOrAdapter: LocalMockServer | EnvironmentAdapter, profile?: EnvironmentProfile) {
+    if ('executeCheck' in serverOrAdapter) {
+      this.adapter = serverOrAdapter;
+    } else {
+      this.adapter = new MockEnvironmentAdapter(serverOrAdapter);
     }
+    this.profile = profile;
   }
 
-  /**
-   * Check 2: Service Health
-   */
-  public async checkHealth(_timeoutMs: number = 2000): Promise<CheckResult> {
-    const start = Date.now();
-    try {
-      const res = await this.mockServer.getHealth();
-      const duration = Date.now() - start;
-      const isHealthy = res.status === 200;
+  public async runCheck(checkDef: CheckDefinition): Promise<CheckResult> {
+    const res = await this.adapter.executeCheck({
+      definition: checkDef,
+      timeoutMs: checkDef.timeoutMs || 2000,
+    });
 
-      return {
-        checkId: 'chk_health',
-        name: 'Service Health Status',
-        status: isHealthy ? CheckStatus.PASS : CheckStatus.BLOCK,
-        evidence: {
-          statusCode: res.status,
-          responseTimeMs: duration,
-          details: isHealthy ? 'Service healthy (HTTP 200)' : `Service degraded with status ${res.status}`,
-          payloadSnippet: sanitizeEvidence(res.data),
-        },
-        timestamp: new Date().toISOString(),
-        remediation: isHealthy ? undefined : 'Target service is down or degraded. Pause test run until restored.',
-      };
-    } catch (err: unknown) {
-      return {
-        checkId: 'chk_health',
-        name: 'Service Health Status',
-        status: CheckStatus.ERROR,
-        evidence: {
-          details: err instanceof Error ? err.message : 'Health check failed',
-        },
-        timestamp: new Date().toISOString(),
-        remediation: 'Inspect service logs and verify API container health.',
-      };
+    let remediationText = checkDef.remediation;
+    if (res.status === CheckStatus.WARN && checkDef.id === 'chk_records') {
+      remediationText = 'Trigger approved bootstrap action to seed missing entity records.';
+    } else if (res.status === CheckStatus.BLOCK && checkDef.id === 'chk_auth') {
+      remediationText = 'Rotate or refresh the test runner service account authorization token.';
+    } else if (res.status === CheckStatus.BLOCK && checkDef.id === 'chk_health') {
+      remediationText = 'Target service is down or degraded. Inspect service logs before re-running.';
     }
+
+    return {
+      checkId: checkDef.id,
+      name: checkDef.name,
+      status: res.status,
+      evidence: {
+        statusCode: res.statusCode,
+        responseTimeMs: res.responseTimeMs,
+        details: res.details,
+        payloadSnippet: sanitizeEvidence(res.payload),
+      },
+      timestamp: new Date().toISOString(),
+      remediation: remediationText,
+    };
+  }
+
+  public async checkReachability(timeoutMs: number = 2000): Promise<CheckResult> {
+    return this.runCheck({
+      id: 'chk_reachability',
+      name: 'Target Mock Base Reachability',
+      category: 'reachability',
+      purpose: 'Verify target mock server is online',
+      endpoint: '/ping',
+      expectedStatus: 200,
+      timeoutMs,
+      remediation: 'Check mock service process',
+    });
+  }
+
+  public async checkHealth(timeoutMs: number = 2000): Promise<CheckResult> {
+    return this.runCheck({
+      id: 'chk_health',
+      name: 'Service Health Status',
+      category: 'health',
+      purpose: 'Verify service health status',
+      endpoint: '/health',
+      expectedStatus: 200,
+      timeoutMs,
+      remediation: 'Inspect mock service container',
+    });
+  }
+
+  public async checkAuthentication(timeoutMs: number = 2000): Promise<CheckResult> {
+    return this.runCheck({
+      id: 'chk_auth',
+      name: 'Service Account Auth',
+      category: 'auth',
+      purpose: 'Verify auth token validity',
+      endpoint: '/auth',
+      expectedStatus: 200,
+      timeoutMs,
+      remediation: 'Refresh service account mock credentials',
+    });
+  }
+
+  public async checkRequiredRecords(timeoutMs: number = 2000): Promise<CheckResult> {
+    return this.runCheck({
+      id: 'chk_records',
+      name: 'Prerequisite Test Seed Records',
+      category: 'data',
+      purpose: 'Check required test records exist',
+      endpoint: '/records',
+      expectedStatus: 200,
+      timeoutMs,
+      remediation: 'Run approved bootstrap setup action',
+    });
+  }
+
+  public async checkFeatureFlags(timeoutMs: number = 2000): Promise<CheckResult> {
+    return this.runCheck({
+      id: 'chk_feature_flags',
+      name: 'Feature Flag Configuration',
+      category: 'feature_flag',
+      purpose: 'Verify required feature flags are enabled',
+      endpoint: '/flags',
+      expectedStatus: 200,
+      timeoutMs,
+      remediation: 'Enable required flag in configuration',
+    });
   }
 
   /**
-   * Check 3: Authentication & Token Validity
-   */
-  public async checkAuthentication(_timeoutMs: number = 2000): Promise<CheckResult> {
-    const start = Date.now();
-    try {
-      const res = await this.mockServer.getAuth();
-      const duration = Date.now() - start;
-      const isAuth = res.status === 200 && res.data.authenticated;
-
-      return {
-        checkId: 'chk_auth',
-        name: 'Service Account Authentication',
-        status: isAuth ? CheckStatus.PASS : CheckStatus.BLOCK,
-        evidence: {
-          statusCode: res.status,
-          responseTimeMs: duration,
-          details: isAuth ? 'Authentication token valid' : 'Authentication failed / token expired',
-          payloadSnippet: sanitizeEvidence(res.data),
-        },
-        timestamp: new Date().toISOString(),
-        remediation: isAuth ? undefined : 'Rotate or refresh the test runner service-account credentials.',
-      };
-    } catch (err: unknown) {
-      return {
-        checkId: 'chk_auth',
-        name: 'Service Account Authentication',
-        status: CheckStatus.ERROR,
-        evidence: {
-          details: err instanceof Error ? err.message : 'Auth verification error',
-        },
-        timestamp: new Date().toISOString(),
-        remediation: 'Inspect authentication provider or mock auth configuration.',
-      };
-    }
-  }
-
-  /**
-   * Check 4: Required Seed Records Lookup
-   */
-  public async checkRequiredRecords(_timeoutMs: number = 2000): Promise<CheckResult> {
-    const start = Date.now();
-    try {
-      const res = await this.mockServer.getRequiredRecords();
-      const duration = Date.now() - start;
-      const hasRecords = res.status === 200 && res.data.found;
-
-      return {
-        checkId: 'chk_records',
-        name: 'Prerequisite Test Seed Records',
-        status: hasRecords ? CheckStatus.PASS : CheckStatus.WARN,
-        evidence: {
-          statusCode: res.status,
-          responseTimeMs: duration,
-          details: hasRecords
-            ? `Found ${res.data.count} prerequisite test record(s)`
-            : 'Prerequisite test seed records missing (HTTP 404)',
-          payloadSnippet: sanitizeEvidence(res.data),
-        },
-        timestamp: new Date().toISOString(),
-        remediation: hasRecords
-          ? undefined
-          : 'Trigger approved bootstrap setup action to create missing prerequisite entities.',
-      };
-    } catch (err: unknown) {
-      return {
-        checkId: 'chk_records',
-        name: 'Prerequisite Test Seed Records',
-        status: CheckStatus.ERROR,
-        evidence: {
-          details: err instanceof Error ? err.message : 'Record query error',
-        },
-        timestamp: new Date().toISOString(),
-        remediation: 'Verify data store access or tenant configuration.',
-      };
-    }
-  }
-
-  /**
-   * Check 5: Feature Flag Configuration
-   */
-  public async checkFeatureFlags(requiredFlagKey: string = 'e2e-suite-enabled'): Promise<CheckResult> {
-    const start = Date.now();
-    try {
-      const res = await this.mockServer.getFeatureFlags();
-      const duration = Date.now() - start;
-      const flags = res.data.flags || {};
-      const isEnabled = Boolean(flags[requiredFlagKey]);
-
-      return {
-        checkId: 'chk_feature_flags',
-        name: 'Feature Flag Configuration',
-        status: isEnabled ? CheckStatus.PASS : CheckStatus.WARN,
-        evidence: {
-          statusCode: res.status,
-          responseTimeMs: duration,
-          details: isEnabled
-            ? `Required flag '${requiredFlagKey}' is enabled`
-            : `Required flag '${requiredFlagKey}' is missing or disabled`,
-          payloadSnippet: sanitizeEvidence(res.data),
-        },
-        timestamp: new Date().toISOString(),
-        remediation: isEnabled ? undefined : `Enable feature flag '${requiredFlagKey}' in test environment settings.`,
-      };
-    } catch (err: unknown) {
-      return {
-        checkId: 'chk_feature_flags',
-        name: 'Feature Flag Configuration',
-        status: CheckStatus.ERROR,
-        evidence: {
-          details: err instanceof Error ? err.message : 'Feature flag check error',
-        },
-        timestamp: new Date().toISOString(),
-        remediation: 'Check feature flag service configuration.',
-      };
-    }
-  }
-
-  /**
-   * Runs the complete preflight check suite and computes overall run disposition.
+   * Executes all configured checks and computes overall readiness disposition.
    */
   public async runAll(): Promise<PreflightReport> {
+    const checksToRun =
+      this.profile?.checks && this.profile.checks.length > 0
+        ? this.profile.checks
+        : DEFAULT_CHECKS;
+
     const results: CheckResult[] = [];
+    for (const checkDef of checksToRun) {
+      const res = await this.runCheck(checkDef);
+      results.push(res);
+    }
 
-    const reachability = await this.checkReachability();
-    results.push(reachability);
-
-    const health = await this.checkHealth();
-    results.push(health);
-
-    const auth = await this.checkAuthentication();
-    results.push(auth);
-
-    const records = await this.checkRequiredRecords();
-    results.push(records);
-
-    const flags = await this.checkFeatureFlags();
-    results.push(flags);
-
-    // Compute overall classification deterministically
-    const hasBlock = results.some((r) => r.status === CheckStatus.BLOCK);
-    const hasError = results.some((r) => r.status === CheckStatus.ERROR);
+    const hasBlock = results.some((r) => r.status === CheckStatus.BLOCK || r.status === CheckStatus.ERROR);
     const hasWarn = results.some((r) => r.status === CheckStatus.WARN);
 
-    let overallStatus: CheckStatus = CheckStatus.PASS;
+    let overallStatus = CheckStatus.PASS;
     let suggestedRunState: PreflightReport['suggestedRunState'] = 'READY';
-    let summary = 'All preflight environment checks passed successfully.';
+    let summary = 'All preflight checks passed successfully. Environment is READY.';
 
-    if (hasBlock || hasError) {
-      overallStatus = hasBlock ? CheckStatus.BLOCK : CheckStatus.ERROR;
+    if (hasBlock) {
+      overallStatus = CheckStatus.BLOCK;
       suggestedRunState = 'BLOCKED';
-      summary = 'Environment preflight checks blocked: critical service outage or expired authentication.';
+      summary = 'Preflight failed with critical blockers (e.g. auth expired or service degraded). Run must halt.';
     } else if (hasWarn) {
       overallStatus = CheckStatus.WARN;
       suggestedRunState = 'BOOTSTRAPPING';
-      summary = 'Preflight warnings detected (e.g. missing seed records). Approved bootstrap setup recommended.';
+      summary = 'Preflight detected missing prerequisite seed records. Safe bootstrap setup required.';
     }
 
     return {

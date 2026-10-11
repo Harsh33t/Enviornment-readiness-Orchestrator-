@@ -7,7 +7,7 @@ A deterministic, mock-only preflight and environment-readiness orchestration pro
 
 ---
 
-## 🎯 The Problem
+## The Problem
 
 In modern end-to-end testing, tests often fail not due to genuine product bugs, but because the test environment was unready:
 - Authentication tokens expired (401)

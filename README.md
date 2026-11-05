@@ -19,7 +19,7 @@ This prototype implements an **Environment Readiness Layer** that runs preflight
 
 ---
 
-## 🔒 Safety & Prototype Isolation Boundary
+## Safety & Prototype Isolation Boundary
 
 - **In-Memory Mock Engines:** 100% deterministic local handlers; no live external network requests.
 - **SSRF Protections:** Strict URL parsing and allowlisted local mock endpoints.

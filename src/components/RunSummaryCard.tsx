@@ -85,10 +85,17 @@ export const RunSummaryCard: React.FC<RunSummaryCardProps> = ({ result }) => {
         <div style={{ padding: '12px 16px', background: 'rgba(0,0,0,0.3)', borderRadius: 'var(--radius-md)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Teardown Status</div>
           <div style={{ fontSize: '0.95rem', fontWeight: 600, color: result.teardownSummary?.success ? 'var(--status-pass)' : result.teardownSummary ? 'var(--status-block)' : 'var(--text-muted)' }}>
-            {result.teardownSummary ? `${result.teardownSummary.cleanedCount} / ${result.teardownSummary.totalTracked} Cleaned` : 'Pending execution'}
+            {result.teardownSummary ? `${result.teardownSummary.cleanedCount} / ${result.teardownSummary.totalTracked} Cleaned · ${result.teardownSummary.totalAttempts} cleanup attempts` : 'Pending execution'}
           </div>
         </div>
       </div>
+      {result.teardownSummary?.failedResources.length ? (
+        <div style={{ marginTop: '12px', color: 'var(--status-block)', fontSize: '0.85rem' }}>
+          {result.teardownSummary.failedResources.map((resource) => (
+            <div key={resource.id}>{resource.id}: cleanup failed after {resource.attempts} attempt{resource.attempts === 1 ? '' : 's'}; inspect the run's sanitized evidence for details.</div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 };

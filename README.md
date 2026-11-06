@@ -15,7 +15,9 @@ In modern end-to-end testing, tests often fail not due to genuine product bugs, 
 - Required seed database entities missing (404)
 - Ephemeral test entities leaked across test executions
 
-This prototype implements an **Environment Readiness Layer** that runs preflight checks, requests operator approval for bootstrap setup, executes isolated mock tests, and enforces idempotent resource cleanup.
+This prototype implements an **Environment Readiness Layer** that runs preflight checks, requests operator approval for bootstrap setup, executes isolated mock tests, and enforces bounded, observable resource cleanup.
+
+Cleanup retries are limited to idempotent `DELETE` actions and transient failures (transport errors, HTTP 408, 429, and 5xx). The default is three attempts per resource; configuration is hard-capped at five, and each exponential-backoff delay is capped at five seconds (the defaults are 100 ms then 200 ms). Permanent 4xx failures and `POST` teardown actions are attempted once; a timed-out POST might already have applied a side effect, so retrying it without an idempotency contract could duplicate work. Exhausted failures remain marked `FAILED`, and the run summary reports cleanup attempt counts. This follows the general reliability guidance to make retries safe for idempotent mutations rather than repeat arbitrary side effects ([AWS Well-Architected REL04-BP04](https://docs.aws.amazon.com/wellarchitected/latest/framework/rel_prevent_interaction_failure_idempotent.html); [AWS Builders' Library](https://aws.amazon.com/builders-library/making-retries-safe-with-idempotent-apis/)).
 
 ---
 
@@ -107,7 +109,7 @@ npm ci
 # 2. Run typecheck & linter
 npm run lint
 
-# 3. Run automated tests (48 unit & integration tests)
+# 3. Run automated unit and integration tests
 npm test
 
 # 4. Start local interactive dashboard

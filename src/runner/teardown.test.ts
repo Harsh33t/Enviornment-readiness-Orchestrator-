@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LocalMockServer } from '../mock-service/mock-server.ts';
 import { ResourceLedger } from './teardown.ts';
 import { ResourceRecord, TeardownAction } from '../core/types.ts';
+import type { EnvironmentAdapter } from '../core/adapter.ts';
 
 describe('ResourceLedger & Idempotent Teardown', () => {
   let mockServer: LocalMockServer;
@@ -97,5 +98,88 @@ describe('ResourceLedger & Idempotent Teardown', () => {
     expect(summary.cleanedCount).toBe(1);
     expect(ledger.getActiveResources()).toHaveLength(0);
     expect(ledger.getEntries()[0].resource.teardownStatus).toBe('CLEANED');
+  });
+
+  it('retries transient DELETE failures with exponential backoff and records attempts', async () => {
+    const executeTeardownAction = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary network timeout'))
+      .mockResolvedValueOnce({ success: false, statusCode: 503, error: 'temporary service failure' })
+      .mockResolvedValueOnce({ success: true, statusCode: 200 });
+    const wait = vi.fn(async (_delayMs: number) => {});
+    const adapter: EnvironmentAdapter = {
+      adapterName: 'retry-test',
+      executeCheck: vi.fn(),
+      executeSetupAction: vi.fn(),
+      executeTeardownAction,
+    };
+    const retryLedger = new ResourceLedger(adapter, { maxAttempts: 3, baseDelayMs: 10, wait });
+    retryLedger.registerResource(mockResource1, tdAction);
+
+    const summary = await retryLedger.executeTeardown();
+
+    expect(executeTeardownAction).toHaveBeenCalledTimes(3);
+    expect(wait.mock.calls.map(([delay]) => delay)).toEqual([10, 20]);
+    expect(summary).toMatchObject({ success: true, cleanedCount: 1, failedCount: 0, totalAttempts: 3 });
+    expect(retryLedger.getEntry(mockResource1.id)).toMatchObject({ attemptCount: 3, resource: { teardownStatus: 'CLEANED' } });
+  });
+
+  it('stops after the bounded retry limit and includes attempt count in failed resources', async () => {
+    const executeTeardownAction = vi.fn().mockResolvedValue({ success: false, statusCode: 503, error: 'service unavailable' });
+    const wait = vi.fn(async (_delayMs: number) => {});
+    const adapter: EnvironmentAdapter = {
+      adapterName: 'retry-test',
+      executeCheck: vi.fn(),
+      executeSetupAction: vi.fn(),
+      executeTeardownAction,
+    };
+    const retryLedger = new ResourceLedger(adapter, { maxAttempts: 3, baseDelayMs: 5, wait });
+    retryLedger.registerResource(mockResource1, tdAction);
+
+    const summary = await retryLedger.executeTeardown();
+
+    expect(executeTeardownAction).toHaveBeenCalledTimes(3);
+    expect(wait.mock.calls.map(([delay]) => delay)).toEqual([5, 10]);
+    expect(summary).toMatchObject({ success: false, failedCount: 1, totalAttempts: 3, failedResources: [{ id: mockResource1.id, error: 'service unavailable', attempts: 3 }] });
+    expect(retryLedger.getEntry(mockResource1.id)?.resource.teardownStatus).toBe('FAILED');
+  });
+
+  it('hard-caps configured retries and each backoff delay', async () => {
+    const executeTeardownAction = vi.fn().mockResolvedValue({ success: false, statusCode: 503, error: 'service unavailable' });
+    const wait = vi.fn(async (_delayMs: number) => {});
+    const adapter: EnvironmentAdapter = {
+      adapterName: 'retry-test',
+      executeCheck: vi.fn(),
+      executeSetupAction: vi.fn(),
+      executeTeardownAction,
+    };
+    const retryLedger = new ResourceLedger(adapter, { maxAttempts: 100, baseDelayMs: 10_000, wait });
+    retryLedger.registerResource(mockResource1, tdAction);
+
+    const summary = await retryLedger.executeTeardown();
+
+    expect(executeTeardownAction).toHaveBeenCalledTimes(5);
+    expect(wait.mock.calls.map(([delay]) => delay)).toEqual([5000, 5000, 5000, 5000]);
+    expect(summary.totalAttempts).toBe(5);
+  });
+
+  it('does not retry permanent HTTP errors or non-idempotent POST cleanup actions', async () => {
+    const executeTeardownAction = vi.fn().mockResolvedValue({ success: false, statusCode: 400, error: 'invalid cleanup request' });
+    const wait = vi.fn(async (_delayMs: number) => {});
+    const adapter: EnvironmentAdapter = {
+      adapterName: 'retry-test',
+      executeCheck: vi.fn(),
+      executeSetupAction: vi.fn(),
+      executeTeardownAction,
+    };
+    const retryLedger = new ResourceLedger(adapter, { maxAttempts: 5, baseDelayMs: 5, wait });
+    retryLedger.registerResource(mockResource1, tdAction);
+    retryLedger.registerResource(mockResource2, { ...tdAction, id: 'post-action', resourceId: mockResource2.id, method: 'POST' });
+
+    const summary = await retryLedger.executeTeardown();
+
+    expect(executeTeardownAction).toHaveBeenCalledTimes(2);
+    expect(wait).not.toHaveBeenCalled();
+    expect(summary.totalAttempts).toBe(2);
+    expect(summary.failedResources.map(item => item.attempts)).toEqual([1, 1]);
   });
 });
